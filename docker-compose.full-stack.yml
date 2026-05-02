@@ -1,16 +1,46 @@
-# Inventory stack: Postgres + Django + React (behind an EXISTING nginx-proxy on this host).
-# Use this when ports 80/443 are already taken by another docker-proxy / nginx-proxy
-# (e.g. another project). IMS containers only need to join that proxy's Docker network.
+# Full stack: nginx-proxy + Let's Encrypt + Postgres + backend + frontend.
+# Use on a server where ports 80/443 are FREE (no other docker-proxy).
 #
-# Prerequisite: find the network your running proxy uses:
-#   docker network ls
-#   docker inspect <nginx-proxy-container> --format '{{json .NetworkSettings.Networks}}'
-# Set PROXY_NETWORK_NAME in .env (repo root).
-#
-# Fresh server with nothing on 80/443: use docker-compose.full-stack.yml instead:
 #   docker compose -f docker-compose.full-stack.yml up -d --build
+#
+# For a shared VPS that already has nginx-proxy on 80/443, use:
+#   docker compose up -d --build
+# with PROXY_NETWORK_NAME set in .env (see deploy/.env.example).
 
 services:
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: ims-nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - ./deploy/nginx/client_max_body_size.conf:/etc/nginx/conf.d/client_max_body_size.conf:ro
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+
+  nginx-proxy-letsencrypt:
+    image: nginxproxy/acme-companion
+    container_name: ims-nginx-acme
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+    environment:
+      DEFAULT_EMAIL: ${LETSENCRYPT_EMAIL:-support@qubixsolution.com}
+      NGINX_PROXY_CONTAINER: ims-nginx-proxy
+    restart: unless-stopped
+    depends_on:
+      - nginx-proxy
+    networks:
+      - proxy-tier
+
   postgres:
     image: postgres:16-alpine
     container_name: ims-postgres
@@ -74,15 +104,20 @@ services:
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-support@qubixsolution.com}
     expose:
       - "80"
+    depends_on:
+      - nginx-proxy
+      - nginx-proxy-letsencrypt
     restart: unless-stopped
     networks:
       - proxy-tier
 
 volumes:
+  certs:
+  vhost:
+  html:
   postgres_data:
   backend_media:
 
 networks:
   proxy-tier:
-    external: true
-    name: ${PROXY_NETWORK_NAME:?Set PROXY_NETWORK_NAME in .env — see header comment}
+    driver: bridge
