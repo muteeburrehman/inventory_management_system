@@ -5,6 +5,7 @@
 .env.*
 !.env.example
 !**/.env.example
+!deploy/.env.example
 
 # =============================================================================
 # Local databases (SQLite and common variants — never ship to GitHub)

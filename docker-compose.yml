@@ -1,0 +1,125 @@
+# Inventory Management System — production-style stack (nginx-proxy + TLS + Postgres).
+# Celery/Redis omitted (not used in this project).
+#
+# Subdomains (Qubix): see deploy/.env.example — recommended:
+#   Frontend: inventory.qubixsolution.com
+#   API:      inventory-api.qubixsolution.com
+#
+# 1. Copy deploy/.env.example → .env in the repo root (same folder as this file).
+# 2. Set SECRET_KEY, DB_PASSWORD, and DNS A records for FRONTEND_HOST + API_HOST.
+# 3. docker compose up -d --build
+
+services:
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
+    container_name: ims-nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - ./deploy/nginx/client_max_body_size.conf:/etc/nginx/conf.d/client_max_body_size.conf:ro
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+
+  nginx-proxy-letsencrypt:
+    image: nginxproxy/acme-companion
+    container_name: ims-nginx-acme
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+    environment:
+      DEFAULT_EMAIL: ${LETSENCRYPT_EMAIL:-support@qubixsolution.com}
+      NGINX_PROXY_CONTAINER: ims-nginx-proxy
+    restart: unless-stopped
+    depends_on:
+      - nginx-proxy
+    networks:
+      - proxy-tier
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ims-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ims}
+      POSTGRES_USER: ${DB_USER:-ims}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ims-backend
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      ALLOWED_HOSTS: ${API_HOST:?Set API_HOST in .env}
+      DB_NAME: ${DB_NAME:-ims}
+      DB_USER: ${DB_USER:-ims}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      CORS_ALLOWED_ORIGINS: "https://${FRONTEND_HOST}"
+      CSRF_TRUSTED_ORIGINS: "https://${API_HOST},https://${FRONTEND_HOST}"
+      SERVE_MEDIA: "true"
+      VIRTUAL_HOST: ${API_HOST}
+      VIRTUAL_PORT: "8000"
+      LETSENCRYPT_HOST: ${API_HOST}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-support@qubixsolution.com}
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - backend_media:/app/media
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: https://${API_HOST}/api/v1
+    container_name: ims-frontend
+    environment:
+      VIRTUAL_HOST: ${FRONTEND_HOST:?Set FRONTEND_HOST in .env}
+      LETSENCRYPT_HOST: ${FRONTEND_HOST}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-support@qubixsolution.com}
+    expose:
+      - "80"
+    depends_on:
+      - nginx-proxy
+      - nginx-proxy-letsencrypt
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+
+volumes:
+  certs:
+  vhost:
+  html:
+  postgres_data:
+  backend_media:
+
+networks:
+  proxy-tier:
+    driver: bridge
