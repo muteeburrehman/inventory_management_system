@@ -1,0 +1,54 @@
+:root {
+  --ims-sidebar: #0c1e2e;
+  --ims-sidebar-active: #0f766e;
+  --ims-page-bg: #f0f4f8;
+}
+
+body {
+  margin: 0;
+  background: var(--ims-page-bg);
+}
+
+.ims-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+}
+
+.ims-logo {
+  padding: 20px 18px 18px;
+  color: #e2e8f0;
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ims-logo small {
+  display: block;
+  font-weight: 500;
+  font-size: 0.72rem;
+  opacity: 0.55;
+  margin-top: 4px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ims-card.ant-card {
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.ims-stat-card.ant-card .ant-card-body {
+  padding: 18px 20px;
+}
+
+.ims-stat-card .ant-statistic-title {
+  font-size: 0.8rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.ims-header.ant-layout-header {
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+}
