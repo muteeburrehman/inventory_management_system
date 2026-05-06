@@ -112,6 +112,11 @@ class SaleCreateSerializer(serializers.ModelSerializer):
         if paid < total and not attrs.get("customer"):
             raise serializers.ValidationError({"customer": "Customer is required for credit sales."})
         cust = attrs.get("customer")
+        branch = attrs.get("branch") or self.context["request"].user.branch
+        if cust and branch and not cust.branches.filter(pk=branch.pk).exists():
+            raise serializers.ValidationError(
+                {"customer": "This customer is not linked to this branch. Edit the customer or choose another."}
+            )
         if cust and paid < total:
             due = total - paid
             if cust.credit_limit and cust.current_balance + due > cust.credit_limit:

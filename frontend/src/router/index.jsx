@@ -2,6 +2,10 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppLayout } from "../components/Layout/AppLayout.jsx";
 import { DashboardPage } from "../pages/Dashboard/DashboardPage.jsx";
 import { LoginPage } from "../pages/Login/LoginPage.jsx";
+import { AcceptInvitePage } from "../pages/Auth/AcceptInvitePage.jsx";
+import { ForgotPasswordPage } from "../pages/Auth/ForgotPasswordPage.jsx";
+import { ResetPasswordPage } from "../pages/Auth/ResetPasswordPage.jsx";
+import { ChangePasswordPage } from "../pages/Auth/ChangePasswordPage.jsx";
 import { POSPage } from "../pages/POS/POSPage.jsx";
 import { ProductsPage } from "../pages/Products/ProductsPage.jsx";
 import { CategoriesPage } from "../pages/Categories/CategoriesPage.jsx";
@@ -29,6 +33,9 @@ function ProtectedRoute({ children }) {
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
+  { path: "/forgot-password", element: <ForgotPasswordPage /> },
+  { path: "/reset-password", element: <ResetPasswordPage /> },
+  { path: "/accept-invite", element: <AcceptInvitePage /> },
   {
     path: "/",
     element: (
@@ -38,6 +45,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <DashboardPage /> },
+      { path: "change-password", element: <ChangePasswordPage /> },
       { path: "pos", element: <POSPage /> },
       { path: "products", element: <ProductsPage /> },
       { path: "categories", element: <CategoriesPage /> },

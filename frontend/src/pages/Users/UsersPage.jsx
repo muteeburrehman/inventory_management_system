@@ -13,6 +13,7 @@ import {
   Switch,
   Table,
   Tabs,
+  Typography,
 } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined, SaveOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,13 +28,16 @@ import {
 import { listBranches } from "../../api/settings.js";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
 import { antServerPagination } from "../../utils/serverPagination.js";
+import { applyDrfFieldErrors, envelopeMessage } from "../../utils/apiErrors.js";
 
 const ROLES = [
-  { value: "admin", label: "Admin" },
+  { value: "super_admin", label: "Super admin" },
+  { value: "owner", label: "Owner" },
   { value: "manager", label: "Manager" },
   { value: "cashier", label: "Cashier" },
   { value: "accountant", label: "Accountant" },
-  { value: "inventory_staff", label: "Inventory staff" },
+  { value: "inventory_manager", label: "Inventory manager" },
+  { value: "sales_staff", label: "Sales staff" },
 ];
 
 export function UsersPage() {
@@ -42,6 +46,7 @@ export function UsersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form] = Form.useForm();
+  const sendInvite = Form.useWatch("send_invite", form);
   const [permRows, setPermRows] = useState([]);
   const [userPage, setUserPage] = useState(1);
   const [userPageSize, setUserPageSize] = useState(25);
@@ -70,14 +75,29 @@ export function UsersPage() {
 
   const saveUser = useMutation({
     mutationFn: ({ id, values }) => (id ? updateUser(id, values) : createUser(values)),
-    onSuccess: () => {
+    onSuccess: (created, variables) => {
+      const wasEdit = Boolean(variables?.id);
       qc.invalidateQueries({ queryKey: ["users"] });
-      message.success(editing ? "User updated." : "User created.");
+      message.success(wasEdit ? "User updated." : "User created.");
+      if (!wasEdit && created?.invite_url) {
+        Modal.success({
+          title: "Invitation link",
+          content: (
+            <Typography.Paragraph copyable style={{ wordBreak: "break-all" }}>
+              {created.invite_url}
+            </Typography.Paragraph>
+          ),
+        });
+      }
       setModalOpen(false);
       setEditing(null);
       form.resetFields();
     },
-    onError: (e) => message.error(e?.response?.data?.message || "Save failed."),
+    onError: (e) => {
+      if (!applyDrfFieldErrors(form, e)) {
+        message.error(envelopeMessage(e));
+      }
+    },
   });
 
   const delUser = useMutation({
@@ -130,9 +150,10 @@ export function UsersPage() {
       first_name: row.first_name,
       last_name: row.last_name,
       role: row.role,
-      branch: row.branch?.id,
+      branch_ids: (row.branches ?? []).map((b) => b.id),
       phone: row.phone,
       password: "",
+      send_invite: false,
     });
     setModalOpen(true);
   };
@@ -141,12 +162,14 @@ export function UsersPage() {
     const body = { ...values };
     if (!body.password) delete body.password;
     if (editing) {
-      const { password, ...rest } = body;
+      const { password, send_invite: _s, ...rest } = body;
       const payload = password ? { ...rest, password } : rest;
       saveUser.mutate({ id: editing.id, values: payload });
     } else {
-      if (!body.password) {
-        message.warning("Set an initial password for new users.");
+      if (body.send_invite) {
+        delete body.password;
+      } else if (!body.password) {
+        message.warning("Set a password or enable “Send email invitation”.");
         return;
       }
       saveUser.mutate({ values: body });
@@ -160,8 +183,12 @@ export function UsersPage() {
   const userCols = [
     { title: "Username", dataIndex: "username", key: "u" },
     { title: "Email", dataIndex: "email", key: "e", ellipsis: true },
-    { title: "Role", dataIndex: "role", key: "r", width: 130 },
-    { title: "Branch", key: "b", render: (_, r) => r.branch?.name ?? "—" },
+    { title: "Role", dataIndex: "role", key: "r", width: 140 },
+    {
+      title: "Branches",
+      key: "b",
+      render: (_, r) => (r.branches?.length ? r.branches.map((x) => x.name).join(", ") : r.branch?.name ?? "—"),
+    },
     {
       title: "Actions",
       key: "a",
@@ -221,7 +248,12 @@ export function UsersPage() {
       children: (
         <>
           {usersForbidden && (
-            <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="Only Django admin users can manage staff accounts." />
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Only super admin and owner can manage staff, invitations, and role permissions."
+            />
           )}
           <Card
             bordered={false}
@@ -257,7 +289,12 @@ export function UsersPage() {
       children: (
         <>
           {permForbidden && (
-            <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="You need admin access to change role permissions." />
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="You need super admin or owner access to change role permissions."
+            />
           )}
           <Card
             bordered={false}
@@ -312,11 +349,51 @@ export function UsersPage() {
           <Form.Item name="username" label="Username" rules={[{ required: true }]}>
             <Input autoComplete="off" disabled={!!editing} />
           </Form.Item>
-          <Form.Item name="email" label="Email" rules={[{ type: "email" }]}>
+          <Form.Item
+            name="email"
+            label="Email"
+            rules={[
+              {
+                validator: (_, v) => {
+                  const s = (v ?? "").trim();
+                  if (!s) return Promise.resolve();
+                  if (/^\S+@\S+\.\S+$/.test(s)) return Promise.resolve();
+                  return Promise.reject(new Error("Enter a valid email"));
+                },
+              },
+            ]}
+          >
             <Input />
           </Form.Item>
-          <Form.Item name="password" label={editing ? "New password (optional)" : "Password"}>
-            <Input.Password autoComplete="new-password" />
+          {!editing && (
+            <Form.Item
+              name="send_invite"
+              label="Send email invitation"
+              valuePropName="checked"
+              initialValue={false}
+              extra="When on, the user sets their password via the email link — no password needed here."
+            >
+              <Switch
+                checkedChildren="On"
+                unCheckedChildren="Off"
+                onChange={(on) => {
+                  if (on) form.setFieldValue("password", "");
+                }}
+              />
+            </Form.Item>
+          )}
+          <Form.Item
+            name="password"
+            label={editing ? "New password (optional)" : "Password (if not inviting)"}
+            extra={
+              !editing && sendInvite ? "Disabled while invitation is enabled." : undefined
+            }
+          >
+            <Input.Password
+              autoComplete="new-password"
+              disabled={!editing && !!sendInvite}
+              placeholder={!editing && sendInvite ? "Invitation email will include setup link" : undefined}
+            />
           </Form.Item>
           <Form.Item name="first_name" label="First name">
             <Input />
@@ -327,8 +404,8 @@ export function UsersPage() {
           <Form.Item name="role" label="Role" rules={[{ required: true }]}>
             <Select options={ROLES} />
           </Form.Item>
-          <Form.Item name="branch" label="Branch">
-            <Select allowClear placeholder="None" options={branchOptions} />
+          <Form.Item name="branch_ids" label="Branch access" rules={[{ required: true, message: "Select at least one branch" }]}>
+            <Select mode="multiple" placeholder="Branches" options={branchOptions} />
           </Form.Item>
           <Form.Item name="phone" label="Phone">
             <Input />

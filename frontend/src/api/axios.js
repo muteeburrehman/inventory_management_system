@@ -37,11 +37,36 @@ api.interceptors.request.use((config) => {
 
 let refreshing = null;
 
+function requestUrl(config) {
+  if (!config) return "";
+  const base = config.baseURL ?? "";
+  const path = config.url ?? "";
+  return `${base}${path}`;
+}
+
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
+    if (!original) {
+      return Promise.reject(error);
+    }
+
+    const url = requestUrl(original);
+    const isAuthLogin = url.includes("/auth/login");
+    const isAuthRefresh = url.includes("/auth/refresh");
+
     if (error.response?.status === 401 && !original._retry) {
+      // Wrong password / invalid credentials — must not refresh or hard-redirect.
+      if (isAuthLogin) {
+        return Promise.reject(error);
+      }
+      // Refresh token rejected — never attempt a nested refresh.
+      if (isAuthRefresh) {
+        clearTokens();
+        return Promise.reject(error);
+      }
+
       original._retry = true;
       const refresh = getRefresh();
       if (!refresh) {
@@ -79,4 +104,4 @@ api.interceptors.response.use(
   }
 );
 
-export { setTokens, clearTokens, getAccess, accessKey, refreshKey };
+export { setTokens, clearTokens, getAccess, getRefresh, accessKey, refreshKey };

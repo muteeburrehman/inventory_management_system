@@ -1,11 +1,27 @@
+from django.conf import settings
 from django.db import models
 
 
 class Branch(models.Model):
     name = models.CharField(max_length=255, unique=True)
+    code = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="Optional internal store or location code.",
+    )
     address = models.TextField(blank=True)
     phone = models.CharField(max_length=50, blank=True)
+    email = models.EmailField(blank=True)
+    contact_name = models.CharField(max_length=255, blank=True, help_text="Primary store contact person.")
     is_main = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    manager = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="managed_branches",
+    )
 
     class Meta:
         ordering = ["name"]

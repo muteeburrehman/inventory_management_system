@@ -2,6 +2,8 @@ from django.db import models
 
 
 class Customer(models.Model):
+    """Customer master data. Visible on a branch only when linked via ``branches``."""
+
     class CustomerType(models.TextChoices):
         RETAIL = "retail", "Retail"
         WHOLESALE = "wholesale", "Wholesale"
@@ -20,6 +22,11 @@ class Customer(models.Model):
     credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     current_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     reward_points = models.PositiveIntegerField(default=0)
+    branches = models.ManyToManyField(
+        "settings_app.Branch",
+        blank=True,
+        related_name="customers",
+    )
 
     class Meta:
         ordering = ["name"]

@@ -6,8 +6,15 @@ from apps.accounts.views import (
     PermissionListUpdateAPI,
     RefreshView,
     UserViewSet,
+    invite_accept_view,
+    invite_preflight_view,
+    invitation_create_view,
     logout_view,
     me_view,
+    otp_login_stub_view,
+    password_change_view,
+    password_forgot_view,
+    password_reset_view,
 )
 from apps.barcodes.views import generate_barcode, lookup_barcode
 from apps.customers.views import CustomerViewSet
@@ -53,6 +60,13 @@ urlpatterns = [
     path("auth/logout/", logout_view, name="auth-logout"),
     path("auth/refresh/", RefreshView.as_view(), name="auth-refresh"),
     path("auth/me/", me_view, name="auth-me"),
+    path("auth/password/change/", password_change_view, name="auth-password-change"),
+    path("auth/password/forgot/", password_forgot_view, name="auth-password-forgot"),
+    path("auth/password/reset/", password_reset_view, name="auth-password-reset"),
+    path("auth/invitations/", invitation_create_view, name="auth-invitations-create"),
+    path("auth/invitations/preflight/", invite_preflight_view, name="auth-invitations-preflight"),
+    path("auth/invitations/accept/", invite_accept_view, name="auth-invitations-accept"),
+    path("auth/otp/login/", otp_login_stub_view, name="auth-otp-login"),
     path("users/permissions/", PermissionListUpdateAPI.as_view(), name="user-permissions"),
     path(
         "products/categories/",

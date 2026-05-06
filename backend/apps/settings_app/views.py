@@ -1,22 +1,102 @@
 from decimal import Decimal
 
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import generics, status, viewsets
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from config.api import success_response
+from config.api import error_response, success_response
 
 from .models import Branch, BusinessSettings, ShiftClosing
-from .serializers import BranchSerializer, BusinessSettingsSerializer, ShiftClosingSerializer
+from .permissions import CanManageBranches, CanViewBranches
+from .serializers import (
+    BranchListSerializer,
+    BranchSerializer,
+    BusinessSettingsSerializer,
+    ShiftClosingSerializer,
+    branch_ids_with_operations,
+)
 
 
 class BranchViewSet(viewsets.ModelViewSet):
-    queryset = Branch.objects.all()
-    serializer_class = BranchSerializer
-    permission_classes = [IsAuthenticated]
+    queryset = Branch.objects.select_related("manager").order_by("name")
+    permission_classes = [CanViewBranches]
     envelope_message = "Branches."
+
+    def get_permissions(self):
+        if self.action in (
+            "create",
+            "update",
+            "partial_update",
+            "destroy",
+            "manager_candidates",
+        ):
+            return [CanManageBranches()]
+        return [CanViewBranches()]
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return BranchSerializer
+        return BranchListSerializer
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx["branch_ops_ids"] = branch_ids_with_operations()
+        return ctx
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        active = self.request.query_params.get("is_active")
+        if active is not None:
+            v = active.lower() in ("1", "true", "yes")
+            qs = qs.filter(is_active=v)
+        q = (self.request.query_params.get("search") or "").strip()
+        if q:
+            qs = qs.filter(
+                Q(name__icontains=q)
+                | Q(code__icontains=q)
+                | Q(phone__icontains=q)
+                | Q(email__icontains=q)
+                | Q(contact_name__icontains=q)
+            )
+        return qs
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.pk in branch_ids_with_operations():
+            return error_response(
+                "This branch has sales, purchases, stock movements, or expenses. "
+                "Set it to inactive instead of deleting, or archive data first.",
+                status=409,
+            )
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="manager-candidates",
+        permission_classes=[CanManageBranches],
+    )
+    def manager_candidates(self, request):
+        from apps.accounts.models import User
+
+        from .serializers import BranchManagerMiniSerializer
+
+        roles = (
+            User.Role.MANAGER,
+            User.Role.SUPER_ADMIN,
+            User.Role.OWNER,
+            User.Role.INVENTORY_MANAGER,
+            User.Role.ACCOUNTANT,
+            User.Role.SALES_STAFF,
+            User.Role.CASHIER,
+        )
+        qs = User.objects.filter(is_active=True, role__in=roles).order_by("username", "id")[:300]
+        data = BranchManagerMiniSerializer(qs, many=True).data
+        return Response(data)
 
 
 class BusinessSettingsAPIView(generics.RetrieveUpdateAPIView):
@@ -38,7 +118,7 @@ class BusinessSettingsAPIView(generics.RetrieveUpdateAPIView):
             return obj
         b = Branch.objects.first()
         if not b:
-            b = Branch.objects.create(name="Main", is_main=True)
+            b = Branch.objects.create(name="Main", is_main=True, is_active=True)
         return BusinessSettings.objects.create(branch=b, business_name=b.name)
 
 
@@ -48,6 +128,8 @@ def shift_open(request):
     branch = request.user.branch
     if not branch:
         return Response({"detail": "No branch assigned."}, status=status.HTTP_400_BAD_REQUEST)
+    if not branch.is_active:
+        return Response({"detail": "This branch is inactive."}, status=status.HTTP_400_BAD_REQUEST)
     opening = Decimal(str(request.data.get("opening_cash", "0")))
     sc = ShiftClosing.objects.create(
         branch=branch,

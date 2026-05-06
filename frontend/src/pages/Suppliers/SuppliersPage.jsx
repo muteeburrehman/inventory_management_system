@@ -15,7 +15,9 @@ import {
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createSupplier, deleteSupplier, listSuppliers, updateSupplier } from "../../api/suppliers.js";
+import { listBranches } from "../../api/settings.js";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
+import { useAuthStore } from "../../store/authStore.js";
 import { formatCurrency } from "../../utils/currency.js";
 import { antServerPagination } from "../../utils/serverPagination.js";
 
@@ -29,11 +31,13 @@ const empty = {
   opening_balance: 0,
   credit_limit: 0,
   current_balance: 0,
+  branch_ids: [],
 };
 
 export function SuppliersPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
+  const branchId = useAuthStore((s) => s.user?.branch?.id);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
@@ -41,8 +45,13 @@ export function SuppliersPage() {
   const [pageSize, setPageSize] = useState(25);
 
   const { data: pageData, isLoading } = useQuery({
-    queryKey: ["suppliers", page, pageSize],
+    queryKey: ["suppliers", branchId, page, pageSize],
     queryFn: () => listSuppliers({ page, page_size: pageSize }),
+  });
+  const branchesQ = useQuery({
+    queryKey: ["branches", "suppliers-form"],
+    queryFn: () => listBranches({ page_size: 100 }),
+    enabled: modalOpen,
   });
   const rows = pageData?.results ?? [];
   const total = pageData?.count ?? 0;
@@ -84,6 +93,13 @@ export function SuppliersPage() {
     { title: "Phone", dataIndex: "phone", key: "phone", width: 120 },
     { title: "Email", dataIndex: "email", key: "email", ellipsis: true },
     {
+      title: "Branches",
+      key: "br",
+      ellipsis: true,
+      render: (_, r) =>
+        r.branches?.length ? r.branches.map((b) => b.name).join(", ") : "—",
+    },
+    {
       title: "Balance",
       dataIndex: "current_balance",
       key: "bal",
@@ -108,7 +124,7 @@ export function SuppliersPage() {
   return (
     <PageShell
       title="Suppliers"
-      description="Vendor master data and balances. Purchase history and full ledger views can link from each row next (PRD §4)."
+      description="Vendors linked to the branch selected in the header appear here. Edit a supplier to attach or remove branches."
       breadcrumb={[{ title: "Home", path: "/" }, { title: "Parties" }, { title: "Suppliers" }]}
     >
       <Card
@@ -150,16 +166,38 @@ export function SuppliersPage() {
       >
         <Form
           layout="vertical"
-          key={editing?.id ?? "new"}
-          initialValues={editing ? { ...editing } : { ...empty }}
+          key={editing?.id ?? `new-${branchId ?? "nobranch"}`}
+          initialValues={
+            editing
+              ? { ...editing, branch_ids: editing.branches?.map((b) => b.id) ?? [] }
+              : { ...empty, branch_ids: branchId ? [branchId] : [] }
+          }
           onFinish={(values) => {
             const payload = { ...values };
             delete payload.id;
+            delete payload.branches;
             saveMut.mutate({ id: editing?.id, values: payload });
           }}
         >
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input />
+          </Form.Item>
+          <Form.Item
+            name="branch_ids"
+            label="Branches"
+            rules={[{ required: true, type: "array", min: 1, message: "Select at least one branch" }]}
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder={branchesQ.isLoading ? "Loading branches…" : "Where this supplier is used"}
+              loading={branchesQ.isLoading}
+              options={(branchesQ.data?.results ?? []).map((b) => ({
+                value: b.id,
+                label: b.is_active === false ? `${b.name} (inactive)` : b.name,
+                disabled: b.is_active === false,
+              }))}
+            />
           </Form.Item>
           <Form.Item name="company_name" label="Company name">
             <Input />

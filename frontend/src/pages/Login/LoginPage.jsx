@@ -1,28 +1,33 @@
-import { App, Button, Card, Form, Input, Typography } from "antd";
+import { App, Alert, Button, Card, Form, Input, Typography } from "antd";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { login, fetchMe } from "../../api/auth.js";
 import { useAuthStore } from "../../store/authStore.js";
+import { envelopeMessage } from "../../utils/apiErrors.js";
 
 export function LoginPage() {
   const { message } = App.useApp();
   const navigate = useNavigate();
   const setUser = useAuthStore((s) => s.setUser);
+  const [loginError, setLoginError] = useState(null);
 
   const onFinish = async (values) => {
+    setLoginError(null);
     try {
-      await login(values.username, values.password);
+      const envelope = await login(values.username, values.password);
       const me = await fetchMe();
       setUser(me);
+      if (envelope.must_change_password || me?.must_change_password) {
+        message.info("Please set a new password to continue.");
+        navigate("/change-password");
+        return;
+      }
       message.success("Welcome back.");
       navigate("/");
     } catch (e) {
-      const d = e?.response?.data;
-      const errMsg =
-        (d && typeof d === "object" && (d.message || d.detail)) ||
-        (typeof d === "string" && d.slice(0, 200)) ||
-        e?.message ||
-        "Login failed.";
+      const errMsg = envelopeMessage(e);
+      setLoginError(errMsg);
       message.error(errMsg);
     }
   };
@@ -54,6 +59,9 @@ export function LoginPage() {
         <Typography.Paragraph type="secondary" style={{ marginBottom: 28 }}>
           Inventory, billing, and ledger — sign in to continue.
         </Typography.Paragraph>
+        {loginError ? (
+          <Alert type="error" showIcon style={{ marginBottom: 16 }} message={loginError} closable onClose={() => setLoginError(null)} />
+        ) : null}
         <Form layout="vertical" onFinish={onFinish} requiredMark={false}>
           <Form.Item name="username" label="Username or email" rules={[{ required: true }]}>
             <Input size="large" prefix={<UserOutlined />} autoComplete="username" placeholder="you@company.com" />
@@ -65,6 +73,9 @@ export function LoginPage() {
             Sign in
           </Button>
         </Form>
+        <Typography.Paragraph style={{ marginTop: 16, marginBottom: 0 }}>
+          <Link to="/forgot-password">Forgot password?</Link>
+        </Typography.Paragraph>
       </Card>
     </div>
   );

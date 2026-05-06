@@ -6,16 +6,18 @@ from rest_framework.response import Response
 from apps.sales.serializers import SaleListSerializer
 
 from .models import Customer
-from .serializers import CustomerSerializer
+from .serializers import CustomerSerializer, filter_customers_queryset_for_user
 
 
 class CustomerViewSet(viewsets.ModelViewSet):
-    queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
     permission_classes = [IsAuthenticated]
     search_fields = ("name", "phone", "email")
     ordering_fields = ("name", "id")
     envelope_message = "Customers."
+
+    def get_queryset(self):
+        return filter_customers_queryset_for_user(Customer.objects.all(), self.request.user)
 
     @action(detail=True, methods=["get"], url_path="ledger")
     def ledger(self, request, pk=None):

@@ -13,6 +13,7 @@ import {
   Popconfirm,
   Result,
   Row,
+  Select,
   Space,
   Spin,
   Switch,
@@ -33,6 +34,7 @@ import {
   createBranch,
   deleteBranch,
   getBusiness,
+  listBranchManagerCandidates,
   listBranches,
   patchBusiness,
   shiftClose,
@@ -60,6 +62,12 @@ export function SettingsPage() {
     queryKey: ["business-settings"],
     queryFn: getBusiness,
     retry: 1,
+  });
+  const mgrQ = useQuery({
+    queryKey: ["branch-manager-candidates"],
+    queryFn: listBranchManagerCandidates,
+    enabled: branchModal,
+    staleTime: 60_000,
   });
   const branchesQ = useQuery({
     queryKey: ["branches", branchPage, branchPageSize],
@@ -127,14 +135,33 @@ export function SettingsPage() {
     onError: (e) => message.error(envelopeMessage(e)),
   });
 
+  const branchesForbidden = branchesQ.error?.response?.status === 403;
+
   const branchCols = [
     { title: "Name", dataIndex: "name", key: "n" },
-    { title: "Phone", dataIndex: "phone", key: "p" },
+    { title: "Code", dataIndex: "code", key: "c", width: 100, render: (v) => v || "—" },
+    {
+      title: "Manager",
+      key: "mgr",
+      ellipsis: true,
+      render: (_, r) =>
+        r.manager
+          ? `${r.manager.username}${r.manager.first_name ? ` (${r.manager.first_name})` : ""}`
+          : "—",
+    },
+    { title: "Phone", dataIndex: "phone", key: "p", width: 120 },
+    {
+      title: "Status",
+      dataIndex: "is_active",
+      key: "act",
+      width: 90,
+      render: (v) => (v === false ? <Typography.Text type="danger">Inactive</Typography.Text> : "Active"),
+    },
     {
       title: "Main",
       dataIndex: "is_main",
       key: "m",
-      width: 80,
+      width: 70,
       render: (v) => (v ? "Yes" : "—"),
     },
     {
@@ -147,14 +174,40 @@ export function SettingsPage() {
             type="link"
             size="small"
             icon={<EditOutlined />}
+            disabled={branchesForbidden}
             onClick={() => {
               setEditingBranch(r);
-              brForm.setFieldsValue({ ...r });
+              brForm.setFieldsValue({
+                name: r.name,
+                code: r.code || "",
+                address: r.address || "",
+                phone: r.phone || "",
+                email: r.email || "",
+                contact_name: r.contact_name || "",
+                is_main: !!r.is_main,
+                is_active: r.is_active !== false,
+                manager_id: r.manager?.id,
+              });
               setBranchModal(true);
             }}
           />
-          <Popconfirm title="Delete this branch?" description="Ensure no critical data depends on it." onConfirm={() => delBranch.mutateAsync(r.id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+          <Popconfirm
+            title="Delete this branch?"
+            description={
+              r.has_operations
+                ? "This branch has operational data. Deletion is blocked — set inactive instead."
+                : "Only possible when no sales, purchases, stock, or expenses exist."
+            }
+            disabled={branchesForbidden || r.has_operations}
+            onConfirm={() => delBranch.mutateAsync(r.id)}
+          >
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              disabled={branchesForbidden || r.has_operations}
+            />
           </Popconfirm>
         </Space>
       ),
@@ -292,9 +345,11 @@ export function SettingsPage() {
         <Button
           type="primary"
           icon={<PlusOutlined />}
+          disabled={branchesForbidden}
           onClick={() => {
             setEditingBranch(null);
             brForm.resetFields();
+            brForm.setFieldsValue({ is_active: true, is_main: false });
             setBranchModal(true);
           }}
         >
@@ -302,7 +357,19 @@ export function SettingsPage() {
         </Button>
       }
     >
-      {branchesQ.isError ? (
+      {branchesForbidden && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="Branch create, edit, and delete require super admin, owner, or manager role."
+        />
+      )}
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+        Stock, sales, purchases, and expenses are stored per branch. Inactive branches stay in history but cannot be selected
+        for new operations or shifts.
+      </Typography.Paragraph>
+      {branchesQ.isError && !branchesForbidden ? (
         <Result
           status="error"
           title="Could not load branches"
@@ -427,10 +494,10 @@ export function SettingsPage() {
         }}
         footer={null}
         destroyOnClose
-        width={480}
+        width={520}
       >
         <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          Branch names must be unique in practice; use clear labels (e.g. city or store code).
+          Branch names must be unique. Inventory and documents are always scoped by branch.
         </Typography.Paragraph>
         <Form
           form={brForm}
@@ -440,35 +507,67 @@ export function SettingsPage() {
               id: editingBranch?.id,
               values: {
                 name: values.name?.trim(),
+                code: values.code?.trim() || "",
                 address: values.address?.trim() || "",
                 phone: values.phone?.trim() || "",
+                email: values.email?.trim() || "",
+                contact_name: values.contact_name?.trim() || "",
                 is_main: !!values.is_main,
+                is_active: values.is_active !== false,
+                manager_id: values.manager_id ?? null,
               },
             })
           }
         >
           <Form.Item
             name="name"
-            label="Name"
+            label="Store / branch name"
             rules={[
               { required: true, message: "Branch name is required" },
               { min: 2, message: "At least 2 characters" },
               { max: 255, message: "Too long" },
             ]}
           >
-            <Input placeholder="Karachi main" />
+            <Input placeholder="Karachi — Main Mall" />
+          </Form.Item>
+          <Form.Item name="code" label="Store code (optional)" rules={[{ max: 32, message: "Max 32 characters" }]}>
+            <Input placeholder="KHI-01" />
           </Form.Item>
           <Form.Item name="address" label="Address" rules={[{ max: 2000, message: "Address too long" }]}>
-            <Input.TextArea rows={3} placeholder="Street, area…" />
+            <Input.TextArea rows={3} placeholder="Street, area, city…" />
           </Form.Item>
-          <Form.Item
-            name="phone"
-            label="Phone"
-            rules={[{ max: 50, message: "Max 50 characters" }]}
-          >
-            <Input placeholder="+92…" />
+          <Row gutter={16}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="phone" label="Phone" rules={[{ max: 50, message: "Max 50 characters" }]}>
+                <Input placeholder="+92…" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="email" label="Email" rules={[{ type: "email", message: "Invalid email" }]}>
+                <Input placeholder="store@example.com" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="contact_name" label="Contact person" rules={[{ max: 255, message: "Too long" }]}>
+            <Input placeholder="Branch supervisor name" />
           </Form.Item>
-          <Form.Item name="is_main" label="Mark as main branch" valuePropName="checked">
+          <Form.Item name="manager_id" label="Branch manager (optional)">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder={mgrQ.isLoading ? "Loading staff…" : "Assign a staff member"}
+              loading={mgrQ.isLoading}
+              options={(mgrQ.data ?? []).map((u) => ({
+                value: u.id,
+                label: `${u.username} (${[u.first_name, u.last_name].filter(Boolean).join(" ") || u.email || "—"})`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item name="is_active" label="Status" valuePropName="checked" initialValue={true}>
+            <Switch checkedChildren="Active" unCheckedChildren="Inactive" />
+          </Form.Item>
+          <Form.Item name="is_main" label="Main branch flag" valuePropName="checked">
             <Switch />
           </Form.Item>
           <Form.Item>

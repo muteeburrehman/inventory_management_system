@@ -4,6 +4,7 @@ import {
   BellOutlined,
   CalculatorOutlined,
   DashboardOutlined,
+  KeyOutlined,
   LogoutOutlined,
   RetweetOutlined,
   SettingOutlined,
@@ -14,10 +15,9 @@ import {
 } from "@ant-design/icons";
 import { theme, App as AntdApp } from "antd";
 import { Layout, Menu, Space, Dropdown, Button, Avatar, Select } from "antd";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { patchMe } from "../../api/auth.js";
-import { clearTokens } from "../../api/axios.js";
+import { logoutRemote, patchMe } from "../../api/auth.js";
 import { listBranches } from "../../api/settings.js";
 import { useAuthStore } from "../../store/authStore.js";
 
@@ -105,21 +105,39 @@ export function AppLayout() {
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const { token } = theme.useToken();
+  const qc = useQueryClient();
 
   const branchesQ = useQuery({
     queryKey: ["branches", "header"],
     queryFn: () => listBranches({ page_size: 100 }),
   });
-  const branchOptions = (branchesQ.data?.results ?? []).map((b) => ({
-    value: b.id,
-    label: b.name,
-  }));
+  const branchRows = branchesQ.data?.results ?? [];
+  const branchOptions = branchRows
+    .filter((b) => b.is_active !== false || b.id === user?.branch?.id)
+    .map((b) => ({
+      value: b.id,
+      label: b.is_active === false ? `${b.name} (inactive)` : b.name,
+    }));
+
+  const fromMe = (user?.branches ?? []).map((b) => b.id);
+  const allowedIds = new Set(fromMe.length ? fromMe : user?.branch?.id != null ? [user.branch.id] : []);
+  const canSeeAll =
+    Boolean(user?.is_superuser) || user?.role === "super_admin" || user?.role === "owner";
+  const branchChoices = canSeeAll
+    ? branchOptions
+    : allowedIds.size
+      ? branchOptions.filter((o) => allowedIds.has(o.value))
+      : [];
+
+  const onSignOut = async () => {
+    await logoutRemote();
+    useAuthStore.getState().clear();
+    navigate("/login");
+  };
 
   const onMenuClick = ({ key }) => {
     if (key === "logout") {
-      clearTokens();
-      useAuthStore.getState().clear();
-      navigate("/login");
+      onSignOut();
     }
   };
 
@@ -156,17 +174,21 @@ export function AppLayout() {
               placeholder="Select your branch"
               style={{ minWidth: 220 }}
               loading={branchesQ.isLoading}
-              options={branchOptions}
-              disabled={!branchOptions.length && !branchesQ.isLoading}
+              options={branchChoices}
+              disabled={!branchChoices.length && !branchesQ.isLoading}
               value={user?.branch?.id ?? undefined}
               onChange={async (branchId) => {
                 try {
                   const me = await patchMe({ branch: branchId ?? null });
                   setUser(me);
+                  qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
                   message.success(branchId ? "Branch updated." : "Branch cleared.");
                 } catch (e) {
                   const d = e?.response?.data;
+                  const fieldErr = d?.errors?.branch;
+                  const branchMsg = Array.isArray(fieldErr) ? fieldErr[0] : typeof fieldErr === "string" ? fieldErr : null;
                   const errMsg =
+                    branchMsg ||
                     (d && typeof d === "object" && (d.message || d.detail)) ||
                     e?.message ||
                     "Could not update branch.";
@@ -176,12 +198,18 @@ export function AppLayout() {
             />
             <Dropdown
               menu={{
-                items: [{ key: "out", danger: true, label: "Sign out", icon: <LogoutOutlined /> }],
-                onClick: ({ key }) => {
+                items: [
+                  {
+                    key: "pw",
+                    label: <Link to="/change-password">Change password</Link>,
+                    icon: <KeyOutlined />,
+                  },
+                  { type: "divider" },
+                  { key: "out", danger: true, label: "Sign out", icon: <LogoutOutlined /> },
+                ],
+                onClick: async ({ key }) => {
                   if (key === "out") {
-                    clearTokens();
-                    useAuthStore.getState().clear();
-                    navigate("/login");
+                    await onSignOut();
                   }
                 },
               }}

@@ -2,6 +2,8 @@ from django.db import models
 
 
 class Supplier(models.Model):
+    """Vendor master data. Visible on a branch only when linked via ``branches``."""
+
     name = models.CharField(max_length=255)
     company_name = models.CharField(max_length=255, blank=True)
     phone = models.CharField(max_length=50, blank=True)
@@ -11,6 +13,11 @@ class Supplier(models.Model):
     opening_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     current_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    branches = models.ManyToManyField(
+        "settings_app.Branch",
+        blank=True,
+        related_name="suppliers",
+    )
 
     class Meta:
         ordering = ["name"]

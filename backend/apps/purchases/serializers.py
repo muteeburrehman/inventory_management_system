@@ -73,6 +73,18 @@ class PurchaseWriteSerializer(serializers.ModelSerializer):
             "items",
         )
 
+    def validate(self, data):
+        inst = self.instance
+        supplier = data.get("supplier", getattr(inst, "supplier", None) if inst else None)
+        branch = data.get("branch", getattr(inst, "branch", None) if inst else None)
+        if branch is None:
+            branch = self.context["request"].user.branch
+        if supplier and branch and not supplier.branches.filter(pk=branch.pk).exists():
+            raise serializers.ValidationError(
+                {"supplier": "This supplier is not linked to this branch. Edit the supplier or choose another."}
+            )
+        return data
+
     def create(self, validated_data):
         items = validated_data.pop("items")
         request = self.context["request"]

@@ -22,6 +22,18 @@ and React + Vite (frontend). Designed for small-to-medium retail businesses.
 1. Set up and run the backend → see [backend/README.md](./backend/README.md)
 2. Set up and run the frontend → see [frontend/README.md](./frontend/README.md)
 
+## Background tasks (Celery, optional)
+
+Invite and password-reset emails can be sent **asynchronously** when `CELERY_BROKER_URL` is set (e.g. Redis). If it is unset, the API sends mail in the same process as the request.
+
+**Start a worker** (from `backend/`, venv active, **Redis running**, and **`CELERY_BROKER_URL`** in `.env`, e.g. `redis://127.0.0.1:6379/0`):
+
+```bash
+celery -A config worker -l info
+```
+
+See [backend/README.md](./backend/README.md) for environment variables and Docker (the compose files include a `celery` service).
+
 ## Requirements
 
 | Tool       | Minimum Version |
@@ -36,4 +48,3 @@ and React + Vite (frontend). Designed for small-to-medium retail businesses.
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:8000/api/v1
 - Django Admin: http://localhost:8000/admin
-# inventory_management_system

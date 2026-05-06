@@ -8,6 +8,7 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.expenses.models import Expense, ExpenseCategory
+from apps.accounts.models import UserBranchAccess
 from apps.expenses.services import create_expense_ledger
 from apps.ledger.models import LedgerEntry
 from apps.settings_app.models import Branch
@@ -30,6 +31,7 @@ class MeBranchLinkingTests(TestCase):
             email="link@test.com",
             password="testpass123",
         )
+        UserBranchAccess.objects.create(user=self.user, branch=self.branch)
 
     def test_patch_me_sets_branch(self):
         client = _jwt_client(self.user)
@@ -135,6 +137,8 @@ class BranchUniquenessApiTests(TestCase):
             email="br@test.com",
             password="testpass123",
         )
+        self.user.role = User.Role.MANAGER
+        self.user.save(update_fields=["role"])
 
     def test_reject_duplicate_branch_name(self):
         client = _jwt_client(self.user)

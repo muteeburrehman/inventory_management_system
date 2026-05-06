@@ -42,6 +42,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.accounts.must_change_mw.MustChangePasswordMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.accounts.middleware.AuditLogMiddleware",
@@ -53,7 +54,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -103,9 +104,28 @@ DATABASES = {
     }
 }
 
+REDIS_URL = config("REDIS_URL", default="")
+MAX_ACTIVE_REFRESH_SESSIONS = config("MAX_ACTIVE_REFRESH_SESSIONS", default=10, cast=int)
+FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:5173").rstrip("/")
+INVITE_LINK_VALID_HOURS = config("INVITE_LINK_VALID_HOURS", default=72, cast=int)
+PASSWORD_RESET_VALID_SECONDS = config("PASSWORD_RESET_VALID_SECONDS", default=3600, cast=int)
+ENABLE_LOGIN_OTP = config("ENABLE_LOGIN_OTP", default=False, cast=bool)
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@localhost")
+IMS_APP_NAME = config("IMS_APP_NAME", default="Inventory Management System")
+
+# If empty, the API sends transactional email synchronously (no queue). The worker requires
+# CELERY_BROKER_URL to be set — see config/celery.py.
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="").strip()
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="").strip() or None
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "apps.accounts.authentication.IMSJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_RENDERER_CLASSES": ("config.renderers.EnvelopeJSONRenderer",),
@@ -130,6 +150,9 @@ SIMPLE_JWT = {
     # Avoid extra DB write on login (also rules out rare last_login migration issues).
     "UPDATE_LAST_LOGIN": False,
 }
+
+REFRESH_TOKEN_LIFETIME_SEC = int(SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds())
+ACCESS_TOKEN_LIFETIME_SEC = int(SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds())
 
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",

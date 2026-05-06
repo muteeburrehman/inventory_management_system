@@ -1,0 +1,9 @@
+Hello {{ user.first_name|default:user.username }},
+
+You've been invited to {{ app_name }}.
+
+Open this link to choose your password (valid {{ hours_valid }} hours):
+
+{{ link }}
+
+If you did not expect this message, you can ignore it.

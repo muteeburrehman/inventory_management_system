@@ -29,6 +29,13 @@ services:
     networks:
       - proxy-tier
 
+  redis:
+    image: redis:7-alpine
+    container_name: ims-redis
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+
   backend:
     build:
       context: ./backend
@@ -50,13 +57,61 @@ services:
       VIRTUAL_PORT: "8000"
       LETSENCRYPT_HOST: ${API_HOST}
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-support@qubixsolution.com}
+      FRONTEND_BASE_URL: https://${FRONTEND_HOST}
+      REDIS_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: redis://redis:6379/0
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-noreply@localhost}
+      IMS_APP_NAME: ${IMS_APP_NAME:-Inventory Management System}
     expose:
       - "8000"
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - backend_media:/app/media
+    restart: unless-stopped
+    networks:
+      - proxy-tier
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ims-celery
+    command: celery -A config worker -l info --concurrency=2
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      ALLOWED_HOSTS: ${API_HOST:?Set API_HOST in .env}
+      DB_NAME: ${DB_NAME:-ims}
+      DB_USER: ${DB_USER:-ims}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      FRONTEND_BASE_URL: https://${FRONTEND_HOST}
+      REDIS_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: redis://redis:6379/0
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-noreply@localhost}
+      IMS_APP_NAME: ${IMS_APP_NAME:-Inventory Management System}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
     networks:
       - proxy-tier

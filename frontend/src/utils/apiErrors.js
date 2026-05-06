@@ -9,6 +9,10 @@ export function envelopeMessage(error) {
   if (d && typeof d.detail === "string") {
     return d.detail;
   }
+  if (d && typeof d === "object" && Array.isArray(d.non_field_errors) && d.non_field_errors.length) {
+    const first = d.non_field_errors[0];
+    if (typeof first === "string") return first;
+  }
   if (Array.isArray(d) && d.length && typeof d[0] === "string") {
     return d[0];
   }

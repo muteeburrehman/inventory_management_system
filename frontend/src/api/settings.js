@@ -16,6 +16,12 @@ export async function listBranches(params = {}) {
   return normalizePaged(data);
 }
 
+export async function listBranchManagerCandidates() {
+  const { data } = await api.get("/settings/branches/manager-candidates/");
+  const inner = data?.data ?? data;
+  return Array.isArray(inner) ? inner : [];
+}
+
 export async function createBranch(body) {
   const { data } = await api.post("/settings/branches/", body);
   return unwrap(data);

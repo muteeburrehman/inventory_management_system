@@ -1,12 +1,69 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import Branch, BusinessSettings, ShiftClosing
 
+User = get_user_model()
 
-class BranchSerializer(serializers.ModelSerializer):
+
+def branch_ids_with_operations():
+    """Single round-trip per table; used to flag branches that cannot be hard-deleted."""
+    from apps.expenses.models import Expense
+    from apps.inventory.models import StockMovement
+    from apps.purchases.models import PurchaseOrder
+    from apps.sales.models import Sale
+
+    ids = set(Sale.objects.values_list("branch_id", flat=True).distinct())
+    ids.update(PurchaseOrder.objects.values_list("branch_id", flat=True).distinct())
+    ids.update(StockMovement.objects.values_list("branch_id", flat=True).distinct())
+    ids.update(Expense.objects.values_list("branch_id", flat=True).distinct())
+    return {i for i in ids if i is not None}
+
+
+class BranchManagerMiniSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ("id", "username", "first_name", "last_name", "email")
+
+
+class BranchListSerializer(serializers.ModelSerializer):
+    manager = BranchManagerMiniSerializer(read_only=True)
+    has_operations = serializers.SerializerMethodField()
+
     class Meta:
         model = Branch
-        fields = ("id", "name", "address", "phone", "is_main")
+        fields = (
+            "id",
+            "name",
+            "code",
+            "address",
+            "phone",
+            "email",
+            "contact_name",
+            "is_main",
+            "is_active",
+            "manager",
+            "has_operations",
+        )
+
+    def get_has_operations(self, obj):
+        ops = self.context.get("branch_ops_ids")
+        if ops is not None:
+            return obj.pk in ops
+        return obj.pk in branch_ids_with_operations()
+
+
+class BranchSerializer(BranchListSerializer):
+    manager_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(is_active=True).order_by("username"),
+        source="manager",
+        write_only=True,
+        allow_null=True,
+        required=False,
+    )
+
+    class Meta(BranchListSerializer.Meta):
+        fields = BranchListSerializer.Meta.fields + ("manager_id",)
 
     def validate_name(self, value):
         text = (value or "").strip()
@@ -21,6 +78,11 @@ class BranchSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A branch with this name already exists.")
         return text
 
+    def validate_code(self, value):
+        if not value:
+            return ""
+        return value.strip()[:32]
+
     def validate_phone(self, value):
         if not value:
             return ""
@@ -29,9 +91,33 @@ class BranchSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Phone must be at most 50 characters.")
         return text
 
+    def validate_contact_name(self, value):
+        if not value:
+            return ""
+        return value.strip()[:255]
+
+    def validate_manager(self, user):
+        if user is None:
+            return None
+        role = getattr(user, "role", "")
+        allowed = role in (
+            User.Role.MANAGER,
+            User.Role.SUPER_ADMIN,
+            User.Role.OWNER,
+            User.Role.INVENTORY_MANAGER,
+            User.Role.ACCOUNTANT,
+            User.Role.SALES_STAFF,
+            User.Role.CASHIER,
+        )
+        if not allowed:
+            raise serializers.ValidationError(
+                "Assign a staff member with a valid role as branch manager.",
+            )
+        return user
+
 
 class BusinessSettingsSerializer(serializers.ModelSerializer):
-    branch = BranchSerializer(read_only=True)
+    branch = BranchListSerializer(read_only=True)
     branch_id = serializers.PrimaryKeyRelatedField(
         queryset=Branch.objects.all(), source="branch", write_only=True, required=False
     )
