@@ -10,7 +10,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Result,
   Row,
   Select,
@@ -41,6 +40,7 @@ import {
   shiftOpen,
   updateBranch,
 } from "../../api/settings.js";
+import { ConfirmDeleteButton } from "../../components/ConfirmDeleteButton.jsx";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
 import { antServerPagination } from "../../utils/serverPagination.js";
 import { applyDrfFieldErrors, envelopeMessage } from "../../utils/apiErrors.js";
@@ -191,24 +191,17 @@ export function SettingsPage() {
               setBranchModal(true);
             }}
           />
-          <Popconfirm
+          <ConfirmDeleteButton
             title="Delete this branch?"
             description={
               r.has_operations
                 ? "This branch has operational data. Deletion is blocked — set inactive instead."
                 : "Only possible when no sales, purchases, stock, or expenses exist."
             }
-            disabled={branchesForbidden || r.has_operations}
             onConfirm={() => delBranch.mutateAsync(r.id)}
-          >
-            <Button
-              type="link"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              disabled={branchesForbidden || r.has_operations}
-            />
-          </Popconfirm>
+            icon={<DeleteOutlined />}
+            disabled={branchesForbidden || r.has_operations}
+          />
         </Space>
       ),
     },

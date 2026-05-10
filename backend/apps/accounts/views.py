@@ -194,11 +194,38 @@ def password_change_view(request):
     return success_response({}, message="Password updated. Please sign in again on all devices.")
 
 
+def _password_forgot_rate_peer(request) -> str:
+    """Client IP for forgot-password limits. Prefer X-Forwarded-For only behind trusted reverse-proxy."""
+    ip = ""
+    if getattr(settings, "USE_X_FORWARDED_HOST", False):
+        xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
+        if xff:
+            ip = xff.split(",")[0].strip()
+    if not ip:
+        ip = (request.META.get("REMOTE_ADDR") or "").strip() or "unknown"
+    if ip == "::1":
+        return "127.0.0.1"
+    if ip.startswith("::ffff:"):
+        return ip.removeprefix("::ffff:")
+    return ip
+
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def password_forgot_view(request):
-    if not session_store.forgot_password_rate_allow(request.META.get("REMOTE_ADDR", "unknown")):
-        return success_response({}, message="If an account exists for that email, a reset link was sent.")
+    peer = _password_forgot_rate_peer(request)
+    if not session_store.forgot_password_rate_allow(peer):
+        if settings.DEBUG:
+            logger.warning(
+                "password_forgot: rate limited for %s (no email queued; "
+                "Redis key ims:pwdreq:%s TTL 1h)",
+                peer,
+                peer,
+            )
+        return error_response(
+            "Too many password reset requests from this connection. Try again in about an hour.",
+            status=429,
+        )
     ser = PasswordForgotSerializer(data=request.data)
     ser.is_valid(raise_exception=True)
     email = ser.validated_data["email"].strip().lower()
@@ -206,6 +233,11 @@ def password_forgot_view(request):
     if user:
         raw = PasswordResetToken.issue(user)
         dispatch_password_reset_email(user.email, raw)
+    elif settings.DEBUG:
+        logger.info(
+            "password_forgot: no user for email=%s — nothing queued to Celery",
+            email,
+        )
     return success_response({}, message="If an account exists for that email, a reset link was sent.")
 
 

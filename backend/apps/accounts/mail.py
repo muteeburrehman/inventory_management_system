@@ -5,6 +5,7 @@ import logging
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
+from kombu.exceptions import OperationalError as KombuBrokerError
 
 logger = logging.getLogger(__name__)
 
@@ -48,24 +49,73 @@ def send_password_reset_email_sync(user_email: str, raw_token: str) -> None:
 
 def dispatch_invite_email(user, raw_token: str) -> None:
     if settings.CELERY_BROKER_URL:
-        from apps.accounts.tasks import send_invite_email_task
-
-        send_invite_email_task.delay(user.pk, raw_token)
-    else:
         try:
-            send_invite_email_sync(user, raw_token)
-        except Exception:
-            logger.exception("Invite email failed (sync)")
+            from apps.accounts.tasks import send_invite_email_task
+
+            send_invite_email_task.delay(user.pk, raw_token)
+            logger.info(
+                "Queued invite email on Celery for user_id=%s (check worker terminal for send logs / console output).",
+                user.pk,
+            )
+            return
+        except ImportError:
+            logger.warning(
+                "CELERY_BROKER_URL is set but Celery is not installed; run "
+                "`pip install -r requirements.txt` (or `pip install 'celery[redis]>=5.3,<6'`). "
+                "Sending invite email synchronously.",
+            )
+        except KombuBrokerError as exc:
+            task_broker = getattr(
+                getattr(send_invite_email_task, "app", None),
+                "conf",
+                None,
+            )
+            task_broker_url = getattr(task_broker, "broker_url", None) if task_broker else None
+            logger.warning(
+                "Celery enqueue failed (broker Kombu error). task_app.broker_url=%r "
+                "Django CELERY_BROKER_URL=%r; sending invite email synchronously: %s",
+                task_broker_url,
+                settings.CELERY_BROKER_URL,
+                exc,
+            )
+    try:
+        send_invite_email_sync(user, raw_token)
+    except Exception:
+        logger.exception("Invite email failed (sync)")
 
 
 def dispatch_password_reset_email(user_email: str, raw_token: str) -> None:
     if settings.CELERY_BROKER_URL:
-        from apps.accounts.tasks import send_password_reset_email_task
-
-        send_password_reset_email_task.delay(user_email, raw_token)
-    else:
         try:
-            send_password_reset_email_sync(user_email, raw_token)
-        except Exception:
-            logger.exception("Password reset email failed (sync)")
+            from apps.accounts.tasks import send_password_reset_email_task
+
+            send_password_reset_email_task.delay(user_email, raw_token)
+            logger.info(
+                "Queued password reset email on Celery for %s (check worker terminal for logs / console email output).",
+                user_email,
+            )
+            return
+        except ImportError:
+            logger.warning(
+                "CELERY_BROKER_URL is set but Celery is not installed; run "
+                "`pip install -r requirements.txt`. Sending password reset email synchronously.",
+            )
+        except KombuBrokerError as exc:
+            task_broker = getattr(
+                getattr(send_password_reset_email_task, "app", None),
+                "conf",
+                None,
+            )
+            task_broker_url = getattr(task_broker, "broker_url", None) if task_broker else None
+            logger.warning(
+                "Celery enqueue failed (broker Kombu error). task_app.broker_url=%r "
+                "Django CELERY_BROKER_URL=%r; sending password reset email synchronously: %s",
+                task_broker_url,
+                settings.CELERY_BROKER_URL,
+                exc,
+            )
+    try:
+        send_password_reset_email_sync(user_email, raw_token)
+    except Exception:
+        logger.exception("Password reset email failed (sync)")
 

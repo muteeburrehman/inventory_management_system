@@ -6,6 +6,7 @@ from .models import Brand, Category, Product, ProductVariant
 class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
     extra = 0
+    fields = ("size", "color", "weight", "volume", "sku", "price_modifier", "stock")
 
 
 @admin.register(Category)

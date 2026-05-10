@@ -7,7 +7,6 @@ import {
   Form,
   Input,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Switch,
@@ -26,6 +25,7 @@ import {
   updateUser,
 } from "../../api/users.js";
 import { listBranches } from "../../api/settings.js";
+import { ConfirmDeleteButton } from "../../components/ConfirmDeleteButton.jsx";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
 import { antServerPagination } from "../../utils/serverPagination.js";
 import { applyDrfFieldErrors, envelopeMessage } from "../../utils/apiErrors.js";
@@ -196,9 +196,11 @@ export function UsersPage() {
       render: (_, r) => (
         <Space>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
-          <Popconfirm title="Delete user?" onConfirm={() => delUser.mutateAsync(r.id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          <ConfirmDeleteButton
+            title="Delete user?"
+            onConfirm={() => delUser.mutateAsync(r.id)}
+            icon={<DeleteOutlined />}
+          />
         </Space>
       ),
     },

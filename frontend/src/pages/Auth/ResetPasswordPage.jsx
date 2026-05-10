@@ -3,6 +3,7 @@ import { LockOutlined } from "@ant-design/icons";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMemo } from "react";
 import { resetPassword } from "../../api/auth.js";
+import { envelopeMessage } from "../../utils/apiErrors.js";
 
 export function ResetPasswordPage() {
   const { message } = App.useApp();
@@ -20,7 +21,11 @@ export function ResetPasswordPage() {
       message.success("Password updated. Sign in with your new password.");
       navigate("/login");
     } catch (e) {
-      message.error(e?.response?.data?.message || "Reset failed.");
+      const payload = e?.response?.data;
+      const errors = payload?.errors;
+      const tokenErr = Array.isArray(errors?.token) ? errors.token[0] : errors?.token;
+      const passwordErr = Array.isArray(errors?.password) ? errors.password[0] : errors?.password;
+      message.error(tokenErr || passwordErr || envelopeMessage(e) || "Reset failed.");
     }
   };
 

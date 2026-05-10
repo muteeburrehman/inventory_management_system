@@ -74,6 +74,11 @@ urlpatterns = [
         name="product-category-list",
     ),
     path(
+        "products/categories/tree/",
+        CategoryViewSet.as_view({"get": "tree"}),
+        name="product-category-tree",
+    ),
+    path(
         "products/categories/<int:pk>/",
         CategoryViewSet.as_view(
             {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}

@@ -2,6 +2,18 @@
  * Read error text from our DRF envelope handler or plain Django/DRF bodies.
  */
 export function envelopeMessage(error) {
+  if (!error?.response) {
+    const msg = error?.message;
+    if (msg === "Network Error" || msg === "ERR_NETWORK") {
+      return (
+        "Cannot reach the API. If VITE_API_BASE_URL is /api/v1, run Django on the host/port set in " +
+        "vite.config.js (VITE_PROXY_TARGET, default 127.0.0.1:8000) and check the browser console for [vite proxy]. " +
+        "Otherwise set VITE_API_BASE_URL to your full API URL and matching CORS on the backend."
+      );
+    }
+    if (typeof msg === "string" && msg) return msg;
+    return "Request failed.";
+  }
   const d = error?.response?.data;
   if (d && typeof d.message === "string" && d.message) {
     return d.message;
@@ -16,7 +28,7 @@ export function envelopeMessage(error) {
   if (Array.isArray(d) && d.length && typeof d[0] === "string") {
     return d[0];
   }
-  if (error?.message) {
+  if (typeof error?.message === "string" && error.message) {
     return error.message;
   }
   return "Request failed.";

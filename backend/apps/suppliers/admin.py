@@ -5,4 +5,4 @@ from .models import Supplier
 
 @admin.register(Supplier)
 class SupplierAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "company_name", "phone", "current_balance")
+    list_display = ("id", "name", "contact_person", "company_name", "phone", "current_balance")

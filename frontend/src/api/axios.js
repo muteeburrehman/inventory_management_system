@@ -1,12 +1,31 @@
 import axios from "axios";
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+/**
+ * Base URL for API calls.
+ * - `/api/v1` → same-origin via Vite dev server; requires proxy to Django (see vite.config.js).
+ * - `http://127.0.0.1:8000/api/v1` → direct to Django; set backend CORS_ALLOWED_ORIGINS to match how you open the SPA (localhost vs 127.0.0.1).
+ */
+const baseURL = String(import.meta.env.VITE_API_BASE_URL || "/api/v1").trim();
 const accessKey = import.meta.env.VITE_ACCESS_TOKEN_KEY || "ims_access_token";
 const refreshKey = import.meta.env.VITE_REFRESH_TOKEN_KEY || "ims_refresh_token";
+
+/** Refresh must hit a URL the browser can resolve (avoid ambiguous relative URLs during 401 retry). */
+function absoluteRefreshUrl() {
+  const root = baseURL.replace(/\/$/, "");
+  if (root.startsWith("http://") || root.startsWith("https://")) {
+    return `${root}/auth/refresh/`;
+  }
+  if (typeof window !== "undefined" && window.location?.origin) {
+    const prefix = root.startsWith("/") ? root : `/${root}`;
+    return `${window.location.origin}${prefix}/auth/refresh/`;
+  }
+  return `${root}/auth/refresh/`;
+}
 
 export const api = axios.create({
   baseURL,
   headers: { "Content-Type": "application/json" },
+  timeout: 60_000,
 });
 
 function getAccess() {
@@ -77,7 +96,7 @@ api.interceptors.response.use(
       try {
         if (!refreshing) {
           refreshing = axios
-            .post(`${baseURL}/auth/refresh/`, { refresh })
+            .post(absoluteRefreshUrl(), { refresh })
             .then((r) => {
               const envelope = r.data;
               const data = envelope?.data ?? envelope;

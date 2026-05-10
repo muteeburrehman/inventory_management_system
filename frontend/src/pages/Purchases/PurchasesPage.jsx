@@ -3,24 +3,27 @@ import {
   App,
   Button,
   Card,
+  Col,
   DatePicker,
   Form,
-  Input,
   InputNumber,
   Modal,
-  Popconfirm,
+  Row,
   Select,
   Space,
   Table,
+  Typography,
 } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import { createPurchase, deletePurchase, getPurchase, listPurchases, updatePurchase } from "../../api/purchases.js";
+import { ConfirmDeleteButton } from "../../components/ConfirmDeleteButton.jsx";
 import { listProducts } from "../../api/products.js";
 import { listSuppliers } from "../../api/suppliers.js";
 import { listBranches } from "../../api/settings.js";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
+import { applyDrfFieldErrors, envelopeMessage } from "../../utils/apiErrors.js";
 import { formatCurrency } from "../../utils/currency.js";
 import { antServerPagination } from "../../utils/serverPagination.js";
 
@@ -43,6 +46,63 @@ function lineSubtotal(qty, price, discount, tax) {
   const t = Number(tax) || 0;
   return Math.max(0, q * p - d + t);
 }
+
+function roundMoney(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
+
+/** DRF decimals often arrive as strings — coerce for InputNumber + { type: "number" } rules. */
+function toNum(v, fallback = 0) {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** Ant Design `type: "number"` rejects string decimals from the API — validate with Number() instead. */
+function ruleRequiredMoney(labelShort) {
+  return {
+    validator(_, v) {
+      if (v === undefined || v === null || v === "") {
+        return Promise.reject(new Error(`Enter ${labelShort}.`));
+      }
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) {
+        return Promise.reject(new Error("Use a valid amount (numbers only)."));
+      }
+      return Promise.resolve();
+    },
+  };
+}
+
+function ruleOptionalMoney() {
+  return {
+    validator(_, v) {
+      if (v === undefined || v === null || v === "") return Promise.resolve();
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) {
+        return Promise.reject(new Error("Use a valid amount or leave empty."));
+      }
+      return Promise.resolve();
+    },
+  };
+}
+
+function ruleQty() {
+  return {
+    validator(_, v) {
+      if (v === undefined || v === null || v === "") {
+        return Promise.reject(new Error("Enter quantity."));
+      }
+      const n = parseInt(String(v), 10);
+      if (!Number.isFinite(n) || n < 1) {
+        return Promise.reject(new Error("Whole number ≥ 1."));
+      }
+      return Promise.resolve();
+    },
+  };
+}
+
+const moneyRules = (label) => [ruleRequiredMoney(label)];
+const moneyOptionalRules = [ruleOptionalMoney()];
 
 export function PurchasesPage() {
   const { message } = App.useApp();
@@ -108,7 +168,11 @@ export function PurchasesPage() {
       setEditingId(null);
       form.resetFields();
     },
-    onError: (e) => message.error(e?.response?.data?.message || JSON.stringify(e?.response?.data) || "Save failed."),
+    onError: (e) => {
+      if (!applyDrfFieldErrors(form, e)) {
+        message.error(envelopeMessage(e));
+      }
+    },
   });
 
   const delMut = useMutation({
@@ -124,11 +188,14 @@ export function PurchasesPage() {
     setEditingId(null);
     form.resetFields();
     form.setFieldsValue({
-      items: [{ quantity: 1, purchase_price: 0, tax: 0, discount: 0 }],
+        items: [{ quantity: 1, purchase_price: 0, tax: 0, discount: 0 }],
       purchase_date: dayjs(),
       status: "pending",
       payment_mode: "cash",
       total_amount: 0,
+      discount: 0,
+      tax: 0,
+      extra_charges: 0,
       paid_amount: 0,
       due_amount: 0,
     });
@@ -142,22 +209,22 @@ export function PurchasesPage() {
       form.setFieldsValue({
         supplier: po.supplier,
         purchase_date: po.purchase_date ? dayjs(po.purchase_date) : dayjs(),
-        total_amount: Number(po.total_amount),
-        discount: Number(po.discount),
-        tax: Number(po.tax),
-        extra_charges: Number(po.extra_charges),
-        paid_amount: Number(po.paid_amount),
-        due_amount: Number(po.due_amount),
+        total_amount: toNum(po.total_amount),
+        discount: toNum(po.discount),
+        tax: toNum(po.tax),
+        extra_charges: toNum(po.extra_charges),
+        paid_amount: toNum(po.paid_amount),
+        due_amount: toNum(po.due_amount),
         payment_mode: po.payment_mode,
         status: po.status,
         branch: po.branch,
         items: (po.items || []).map((i) => ({
           product: i.product,
           variant: i.variant,
-          quantity: i.quantity,
-          purchase_price: i.purchase_price,
-          tax: i.tax,
-          discount: i.discount,
+          quantity: Math.max(1, parseInt(String(i.quantity), 10) || 1),
+          purchase_price: toNum(i.purchase_price),
+          tax: toNum(i.tax),
+          discount: toNum(i.discount),
         })),
       });
       setModalOpen(true);
@@ -197,9 +264,11 @@ export function PurchasesPage() {
       render: (_, r) => (
         <Space>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
-          <Popconfirm title="Delete this order?" onConfirm={() => delMut.mutateAsync(r.id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
+          <ConfirmDeleteButton
+            title="Delete this order?"
+            onConfirm={() => delMut.mutateAsync(r.id)}
+            icon={<DeleteOutlined />}
+          />
         </Space>
       ),
     },
@@ -242,7 +311,7 @@ export function PurchasesPage() {
       <Modal
         title={editingId ? `Edit ${editingId}` : "New purchase"}
         open={modalOpen}
-        width={720}
+        width={820}
         onCancel={() => {
           setModalOpen(false);
           setEditingId(null);
@@ -253,77 +322,168 @@ export function PurchasesPage() {
         <Form
           form={form}
           layout="vertical"
+          onValuesChange={(changed, all) => {
+            if ("total_amount" in changed || "paid_amount" in changed) {
+              const t = Number(all.total_amount) || 0;
+              const p = Number(all.paid_amount) || 0;
+              form.setFieldsValue({ due_amount: roundMoney(Math.max(0, t - p)) });
+            }
+          }}
           onFinish={(values) => saveMut.mutate({ id: editingId, values })}
         >
-          <Space wrap style={{ width: "100%" }}>
-            <Form.Item name="supplier" label="Supplier" rules={[{ required: true }]} style={{ minWidth: 200 }}>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                options={supplierRows.map((s) => ({ value: s.id, label: s.name }))}
-              />
-            </Form.Item>
-            <Form.Item name="purchase_date" label="Date" rules={[{ required: true }]} style={{ minWidth: 200 }}>
-              <DatePicker style={{ width: "100%" }} />
-            </Form.Item>
-            <Form.Item name="branch" label="Branch" style={{ minWidth: 180 }}>
-              <Select allowClear placeholder="Default (your branch)" options={(brQ.data?.results ?? []).map((b) => ({ value: b.id, label: b.name }))} />
-            </Form.Item>
-            <Form.Item name="status" label="Status" rules={[{ required: true }]} style={{ minWidth: 160 }}>
-              <Select options={STATUS_OPTS} />
-            </Form.Item>
-            <Form.Item name="payment_mode" label="Payment" style={{ minWidth: 140 }}>
-              <Select options={PAYMENT} />
-            </Form.Item>
-          </Space>
-          <Space wrap>
-            <Form.Item name="total_amount" label="Total">
-              <InputNumber min={0} style={{ width: 120 }} />
-            </Form.Item>
-            <Form.Item name="discount" label="Discount">
-              <InputNumber min={0} style={{ width: 120 }} />
-            </Form.Item>
-            <Form.Item name="tax" label="Tax">
-              <InputNumber min={0} style={{ width: 120 }} />
-            </Form.Item>
-            <Form.Item name="extra_charges" label="Extra">
-              <InputNumber min={0} style={{ width: 120 }} />
-            </Form.Item>
-            <Form.Item name="paid_amount" label="Paid">
-              <InputNumber min={0} style={{ width: 120 }} />
-            </Form.Item>
-            <Form.Item name="due_amount" label="Due">
-              <InputNumber min={0} style={{ width: 120 }} />
-            </Form.Item>
-          </Space>
+          <Typography.Text type="secondary" style={{ display: "block", marginBottom: 10 }}>
+            All amounts are Rs (numbers only). Paid + Due must equal Total — Due updates from Total − Paid.
+          </Typography.Text>
+
+          <Row gutter={[12, 8]}>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item name="supplier" label="Supplier" rules={[{ required: true }]}>
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  options={supplierRows.map((s) => ({ value: s.id, label: s.name }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={12} md={8}>
+              <Form.Item name="purchase_date" label="Date" rules={[{ required: true }]}>
+                <DatePicker style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} md={8}>
+              <Form.Item name="branch" label="Branch">
+                <Select
+                  allowClear
+                  placeholder="Your branch"
+                  options={(brQ.data?.results ?? []).map((b) => ({ value: b.id, label: b.name }))}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={12} md={12}>
+              <Form.Item name="status" label="Status" rules={[{ required: true }]}>
+                <Select options={STATUS_OPTS} />
+              </Form.Item>
+            </Col>
+            <Col xs={12} md={12}>
+              <Form.Item name="payment_mode" label="Payment">
+                <Select options={PAYMENT} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <div style={{ overflowX: "auto", paddingBottom: 8, WebkitOverflowScrolling: "touch" }}>
+            <Space align="start" size={12} wrap={false} style={{ minWidth: 760 }}>
+              <Form.Item name="total_amount" label="Total Rs" rules={moneyRules("total")} style={{ marginBottom: 0 }}>
+                <InputNumber min={0} step={0.01} precision={2} style={{ width: 110 }} controls />
+              </Form.Item>
+              <Form.Item name="discount" label="Order off Rs" rules={moneyOptionalRules} initialValue={0} style={{ marginBottom: 0 }}>
+                <InputNumber min={0} step={0.01} precision={2} style={{ width: 110 }} controls />
+              </Form.Item>
+              <Form.Item name="tax" label="Order tax Rs" rules={moneyOptionalRules} initialValue={0} style={{ marginBottom: 0 }}>
+                <InputNumber min={0} step={0.01} precision={2} style={{ width: 110 }} controls />
+              </Form.Item>
+              <Form.Item name="extra_charges" label="Freight Rs" rules={moneyOptionalRules} initialValue={0} style={{ marginBottom: 0 }}>
+                <InputNumber min={0} step={0.01} precision={2} style={{ width: 110 }} controls />
+              </Form.Item>
+              <Form.Item
+                name="paid_amount"
+                label="Paid Rs"
+                dependencies={["total_amount", "due_amount"]}
+                rules={[...moneyRules("paid amount")]}
+                initialValue={0}
+                style={{ marginBottom: 0 }}
+              >
+                <InputNumber min={0} step={0.01} precision={2} style={{ width: 110 }} controls />
+              </Form.Item>
+              <Form.Item
+                name="due_amount"
+                label="Due Rs"
+                dependencies={["total_amount", "paid_amount"]}
+                rules={[
+                  ...moneyRules("due amount"),
+                  ({ getFieldValue }) => ({
+                    validator(_, dueVal) {
+                      const total = Number(getFieldValue("total_amount")) || 0;
+                      const paid = Number(getFieldValue("paid_amount")) || 0;
+                      const due = Number(dueVal) || 0;
+                      if (Math.abs(paid + due - total) > 0.021) {
+                        return Promise.reject(new Error(`Paid + Due must equal Total (${total.toFixed(2)}).`));
+                      }
+                      return Promise.resolve();
+                    },
+                  }),
+                ]}
+                initialValue={0}
+                style={{ marginBottom: 0 }}
+              >
+                <InputNumber min={0} step={0.01} precision={2} style={{ width: 110 }} controls />
+              </Form.Item>
+            </Space>
+          </div>
+
+          <Typography.Title level={5} style={{ marginTop: 8, marginBottom: 8 }}>
+            Products bought
+          </Typography.Title>
 
           <Form.List name="items">
             {(fields, { add, remove }) => (
               <>
                 {fields.map((field) => (
-                  <Space key={field.key} align="start" style={{ display: "flex", marginBottom: 8 }} wrap>
-                    <Form.Item {...field} name={[field.name, "product"]} rules={[{ required: true }]} style={{ minWidth: 240 }}>
-                      <Select showSearch optionFilterProp="label" options={prodOptions} placeholder="Product" />
-                    </Form.Item>
-                    <Form.Item {...field} name={[field.name, "quantity"]} rules={[{ required: true }]} initialValue={1}>
-                      <InputNumber min={1} placeholder="Qty" />
-                    </Form.Item>
-                    <Form.Item {...field} name={[field.name, "purchase_price"]} rules={[{ required: true }]}>
-                      <InputNumber min={0} placeholder="Price" />
-                    </Form.Item>
-                    <Form.Item {...field} name={[field.name, "discount"]} initialValue={0}>
-                      <InputNumber min={0} placeholder="Disc" />
-                    </Form.Item>
-                    <Form.Item {...field} name={[field.name, "tax"]} initialValue={0}>
-                      <InputNumber min={0} placeholder="Tax" />
-                    </Form.Item>
-                    <Button onClick={() => remove(field.name)} danger type="link">
-                      Remove
-                    </Button>
-                  </Space>
+                  <Card key={field.key} size="small" type="inner" style={{ marginBottom: 10 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 12,
+                        alignItems: "flex-end",
+                      }}
+                    >
+                      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                        <Form.Item {...field} name={[field.name, "product"]} label="Product" rules={[{ required: true, message: "Pick product." }]}>
+                          <Select showSearch optionFilterProp="label" options={prodOptions} />
+                        </Form.Item>
+                      </div>
+                      <div style={{ flex: "0 0 72px" }}>
+                        <Form.Item
+                          {...field}
+                          name={[field.name, "quantity"]}
+                          label="Qty"
+                          rules={[ruleQty()]}
+                          initialValue={1}
+                        >
+                          <InputNumber min={1} precision={0} style={{ width: "100%" }} controls />
+                        </Form.Item>
+                      </div>
+                      <div style={{ flex: "0 0 100px" }}>
+                        <Form.Item
+                          {...field}
+                          name={[field.name, "purchase_price"]}
+                          label="Rate Rs"
+                          rules={[ruleRequiredMoney("rate")]}
+                        >
+                          <InputNumber min={0} step={0.01} precision={2} style={{ width: "100%" }} controls />
+                        </Form.Item>
+                      </div>
+                      <div style={{ flex: "0 0 100px" }}>
+                        <Form.Item {...field} name={[field.name, "discount"]} label="Off Rs" initialValue={0} rules={moneyOptionalRules}>
+                          <InputNumber min={0} step={0.01} precision={2} style={{ width: "100%" }} controls />
+                        </Form.Item>
+                      </div>
+                      <div style={{ flex: "0 0 100px" }}>
+                        <Form.Item {...field} name={[field.name, "tax"]} label="Tax Rs" initialValue={0} rules={moneyOptionalRules}>
+                          <InputNumber min={0} step={0.01} precision={2} style={{ width: "100%" }} controls />
+                        </Form.Item>
+                      </div>
+                      <div style={{ flex: "0 0 auto", paddingBottom: 2 }}>
+                        <Button danger type="link" onClick={() => remove(field.name)} disabled={fields.length <= 1}>
+                          Remove row
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
                 ))}
-                <Button type="dashed" onClick={() => add()} block style={{ marginBottom: 16 }}>
-                  Add line
+                <Button type="dashed" onClick={() => add({ quantity: 1, purchase_price: 0, tax: 0, discount: 0 })} block style={{ marginBottom: 16 }}>
+                  Add row
                 </Button>
               </>
             )}

@@ -2,6 +2,7 @@ import { App, Button, Card, Form, Input, Typography } from "antd";
 import { MailOutlined } from "@ant-design/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { forgotPassword } from "../../api/auth.js";
+import { envelopeMessage } from "../../utils/apiErrors.js";
 
 export function ForgotPasswordPage() {
   const { message } = App.useApp();
@@ -13,7 +14,7 @@ export function ForgotPasswordPage() {
       message.success("If an account exists, we sent reset instructions.");
       navigate("/login");
     } catch (e) {
-      message.error(e?.response?.data?.message || "Request failed.");
+      message.error(envelopeMessage(e));
     }
   };
 

@@ -1,14 +1,18 @@
-import { Button, Card, Space, Table, Tag, Typography } from "antd";
-import { PlusOutlined, ShoppingOutlined } from "@ant-design/icons";
+import { App, Button, Card, Space, Table, Tag, Typography } from "antd";
+import { DeleteOutlined, EyeOutlined, PlusOutlined, ShoppingOutlined, EditOutlined } from "@ant-design/icons";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
-import { listProducts } from "../../api/products.js";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "react-router-dom";
+import { deleteProduct, listProducts } from "../../api/products.js";
+import { ConfirmDeleteButton } from "../../components/ConfirmDeleteButton.jsx";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
 import { formatCurrency } from "../../utils/currency.js";
 import { antServerPagination } from "../../utils/serverPagination.js";
 
 export function ProductsPage() {
+  const navigate = useNavigate();
+  const { message } = App.useApp();
+  const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -17,13 +21,30 @@ export function ProductsPage() {
     queryFn: () => listProducts({ page, page_size: pageSize }),
   });
 
+  const delMutation = useMutation({
+    mutationFn: (pid) => deleteProduct(pid),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["products"] });
+      message.success("Product deleted.");
+    },
+    onError: (e) => message.error(e?.response?.data?.message || "Delete failed."),
+  });
+
   const rows = pageData?.results ?? [];
   const total = pageData?.count ?? 0;
 
   const columns = [
     { title: "Name", dataIndex: "name", key: "name", ellipsis: true },
     { title: "SKU", dataIndex: "sku", key: "sku", width: 120 },
-    { title: "Barcode", dataIndex: "barcode", key: "barcode", width: 130 },
+    { title: "Barcode", dataIndex: "barcode", key: "barcode", width: 120, render: (b) => b || "—" },
+    {
+      title: "Category",
+      key: "cat",
+      width: 140,
+      ellipsis: true,
+      render: (_, r) =>
+        r.category?.parent_name ? `${r.category.parent_name} › ${r.category.name}` : (r.category?.name ?? "—"),
+    },
     {
       title: "Stock",
       dataIndex: "current_stock",
@@ -45,12 +66,37 @@ export function ProductsPage() {
       width: 100,
       render: (s) => <Tag color={s === "active" ? "green" : "default"}>{s}</Tag>,
     },
+    {
+      title: "",
+      key: "actions",
+      width: 200,
+      render: (_, r) => (
+        <Space size="small" wrap={false}>
+          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/products/${r.id}`)}>
+            View
+          </Button>
+          <Link to={`/products/${r.id}/edit`}>
+            <Button type="link" size="small" icon={<EditOutlined />}>
+              Edit
+            </Button>
+          </Link>
+          <ConfirmDeleteButton
+            title="Delete this product?"
+            onConfirm={() => delMutation.mutateAsync(r.id)}
+            icon={<DeleteOutlined />}
+            loading={delMutation.isPending}
+          >
+            Delete
+          </ConfirmDeleteButton>
+        </Space>
+      ),
+    },
   ];
 
   return (
     <PageShell
       title="Products"
-      description="Manage catalog items: SKU, barcode, pricing, stock, and variants (PRD §2)."
+      description="Product master: SKU, barcode, category, pricing, GST, and variants."
       breadcrumb={[
         { title: "Home", path: "/" },
         { title: "Catalog", path: "/products" },
@@ -68,20 +114,19 @@ export function ProductsPage() {
           </Space>
         }
         extra={
-          <Button type="primary" icon={<PlusOutlined />} disabled>
-            Add product
-          </Button>
+          <Link to="/products/create">
+            <Button type="primary" icon={<PlusOutlined />}>
+              Add product
+            </Button>
+          </Link>
         }
       >
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          Full create/edit forms hook to{" "}
-          <Typography.Text code>POST /api/v1/products/</Typography.Text> — scaffolded next.
-        </Typography.Paragraph>
         <Table
           rowKey="id"
           loading={isLoading}
           columns={columns}
           dataSource={rows}
+          scroll={{ x: 960 }}
           pagination={antServerPagination({
             page,
             pageSize,

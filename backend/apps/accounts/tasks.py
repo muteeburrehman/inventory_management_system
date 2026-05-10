@@ -20,7 +20,9 @@ def send_invite_email_task(self, user_id: int, raw_token: str) -> None:
 
     User = get_user_model()
     user = User.objects.get(pk=user_id)
+    logger.info("Celery: sending invite email task user_id=%s email=%s", user_id, user.email)
     send_invite_email_sync(user, raw_token)
+    logger.info("Celery: invite email task finished for user_id=%s", user_id)
 
 
 @shared_task(
@@ -33,4 +35,6 @@ def send_invite_email_task(self, user_id: int, raw_token: str) -> None:
 def send_password_reset_email_task(self, user_email: str, raw_token: str) -> None:
     from apps.accounts.mail import send_password_reset_email_sync
 
+    logger.info("Celery: sending password reset email task to=%s", user_email)
     send_password_reset_email_sync(user_email, raw_token)
+    logger.info("Celery: password reset email task finished to=%s", user_email)

@@ -8,7 +8,6 @@ import {
   Input,
   InputNumber,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -27,6 +26,7 @@ import {
   updateExpense,
   updateExpenseCategory,
 } from "../../api/expenses.js";
+import { ConfirmDeleteButton } from "../../components/ConfirmDeleteButton.jsx";
 import { listBranches } from "../../api/settings.js";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
 import { formatCurrency } from "../../utils/currency.js";
@@ -133,9 +133,11 @@ export function ExpensesPage() {
               setCatModal(true);
             }}
           />
-          <Popconfirm title="Delete category?" onConfirm={() => delCat.mutateAsync(r.id)}>
-            <Button type="link" danger size="small" icon={<DeleteOutlined />} />
-          </Popconfirm>
+          <ConfirmDeleteButton
+            title="Delete category?"
+            onConfirm={() => delCat.mutateAsync(r.id)}
+            icon={<DeleteOutlined />}
+          />
         </Space>
       ),
     },
@@ -188,9 +190,11 @@ export function ExpensesPage() {
               setExpModal(true);
             }}
           />
-          <Popconfirm title="Delete expense?" onConfirm={() => delExp.mutateAsync(r.id)}>
-            <Button type="link" danger size="small" icon={<DeleteOutlined />} />
-          </Popconfirm>
+          <ConfirmDeleteButton
+            title="Delete expense?"
+            onConfirm={() => delExp.mutateAsync(r.id)}
+            icon={<DeleteOutlined />}
+          />
         </Space>
       ),
     },

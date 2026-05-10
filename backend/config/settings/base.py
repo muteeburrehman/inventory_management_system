@@ -1,9 +1,17 @@
 from pathlib import Path
 from datetime import timedelta
 
-from decouple import config, Csv
+from decouple import Config, Csv, RepositoryEmpty, RepositoryEnv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+# Always load backend/.env (not cwd / AutoConfig heuristics). Celery and runserver then match.
+_env_path = BASE_DIR / ".env"
+_config_repository = (
+    RepositoryEnv(str(_env_path))
+    if _env_path.is_file()
+    else RepositoryEmpty()
+)
+config = Config(_config_repository)
 
 SECRET_KEY = config("SECRET_KEY")
 DEBUG = config("DEBUG", default=False, cast=bool)
@@ -111,6 +119,13 @@ INVITE_LINK_VALID_HOURS = config("INVITE_LINK_VALID_HOURS", default=72, cast=int
 PASSWORD_RESET_VALID_SECONDS = config("PASSWORD_RESET_VALID_SECONDS", default=3600, cast=int)
 ENABLE_LOGIN_OTP = config("ENABLE_LOGIN_OTP", default=False, cast=bool)
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@localhost")
+# SMTP (read in development and production). Console backend ignores these; without them,
+# Django falls back to localhost:25 and SMTP fails with connection refused.
+EMAIL_HOST = config("EMAIL_HOST", default="")
+EMAIL_PORT = config("EMAIL_PORT", default=587, cast=int)
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=True, cast=bool)
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 IMS_APP_NAME = config("IMS_APP_NAME", default="Inventory Management System")
 
 # If empty, the API sends transactional email synchronously (no queue). The worker requires
@@ -156,7 +171,7 @@ ACCESS_TOKEN_LIFETIME_SEC = int(SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_second
 
 CORS_ALLOWED_ORIGINS = config(
     "CORS_ALLOWED_ORIGINS",
-    default="http://localhost:5173",
+    default="http://localhost:5173,http://127.0.0.1:5173",
     cast=Csv(),
 )
 

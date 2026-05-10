@@ -8,7 +8,10 @@ import { ResetPasswordPage } from "../pages/Auth/ResetPasswordPage.jsx";
 import { ChangePasswordPage } from "../pages/Auth/ChangePasswordPage.jsx";
 import { POSPage } from "../pages/POS/POSPage.jsx";
 import { ProductsPage } from "../pages/Products/ProductsPage.jsx";
+import { ProductFormPage } from "../pages/Products/ProductFormPage.jsx";
+import { ProductDetailPage } from "../pages/Products/ProductDetailPage.jsx";
 import { CategoriesPage } from "../pages/Categories/CategoriesPage.jsx";
+import { BrandsPage } from "../pages/Brands/BrandsPage.jsx";
 import { SuppliersPage } from "../pages/Suppliers/SuppliersPage.jsx";
 import { CustomersPage } from "../pages/Customers/CustomersPage.jsx";
 import { LedgerPage } from "../pages/Ledger/LedgerPage.jsx";
@@ -47,8 +50,12 @@ export const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: "change-password", element: <ChangePasswordPage /> },
       { path: "pos", element: <POSPage /> },
+      { path: "products/create", element: <ProductFormPage /> },
+      { path: "products/:id/edit", element: <ProductFormPage /> },
+      { path: "products/:id", element: <ProductDetailPage /> },
       { path: "products", element: <ProductsPage /> },
       { path: "categories", element: <CategoriesPage /> },
+      { path: "brands", element: <BrandsPage /> },
       { path: "suppliers", element: <SuppliersPage /> },
       { path: "customers", element: <CustomersPage /> },
       { path: "purchases", element: <PurchasesPage /> },

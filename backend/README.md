@@ -91,6 +91,8 @@ CELERY_BROKER_URL=redis://127.0.0.1:6379/0
 
 Optional concurrency: `celery -A config worker -l info --concurrency=2`
 
+**Where logs go:** With a worker running, the API only **enqueues** the job; the **worker** runs `send_mail` / console output. Watch the **worker** terminal for task lines (`Celery: sending password reset…`) and for **console** email dumps. The **`runserver`** terminal will show `Queued … on Celery` when enqueue succeeds.
+
 ### Docker Compose
 
 `docker-compose.yml` and `docker-compose.full-stack.yml` define a **`celery`** service and **`redis`**. After `docker compose up`, the worker starts automatically. Set **`EMAIL_*`** and **`FRONTEND_BASE_URL`** in your `.env` so messages are delivered and links are correct.

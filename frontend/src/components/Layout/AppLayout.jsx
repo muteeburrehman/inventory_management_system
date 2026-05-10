@@ -34,6 +34,7 @@ function menuItems() {
       children: [
         { key: "/products", label: <Link to="/products">Products</Link> },
         { key: "/categories", label: <Link to="/categories">Categories</Link> },
+        { key: "/brands", label: <Link to="/brands">Brands</Link> },
       ],
     },
     {

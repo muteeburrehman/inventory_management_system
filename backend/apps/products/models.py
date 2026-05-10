@@ -46,7 +46,7 @@ class Product(models.Model):
 
     name = models.CharField(max_length=255)
     sku = models.CharField(max_length=100, unique=True)
-    barcode = models.CharField(max_length=100, unique=True)
+    barcode = models.CharField(max_length=100, unique=True, blank=True, null=True)
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     unit_type = models.CharField(max_length=32, default="pcs")
@@ -74,6 +74,18 @@ class ProductVariant(models.Model):
     size = models.CharField(max_length=64, blank=True)
     color = models.CharField(max_length=64, blank=True)
     model = models.CharField(max_length=64, blank=True)
+    weight = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=0,
+        help_text="Optional weight (e.g. kg) for this variant.",
+    )
+    volume = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=0,
+        help_text="Optional volume (e.g. L) for this variant.",
+    )
     sku = models.CharField(max_length=100, unique=True)
     price_modifier = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     stock = models.PositiveIntegerField(default=0)
