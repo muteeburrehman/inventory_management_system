@@ -2,7 +2,6 @@ import {
   App,
   Button,
   Card,
-  Cascader,
   Col,
   Divider,
   Form,
@@ -14,7 +13,7 @@ import {
   Typography,
 } from "antd";
 import { MinusCircleOutlined, PlusOutlined, SaveOutlined } from "@ant-design/icons";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -25,13 +24,29 @@ import {
   updateProduct,
 } from "../../api/products.js";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
-import { applyDrfFieldErrors, envelopeMessage } from "../../utils/apiErrors.js";
-import { cascaderCategoryOptions, categoryPathForId } from "./productCategoryTree.js";
+import {
+  applyDrfFieldErrors,
+  collectDrfSummaryErrors,
+  envelopeMessage,
+} from "../../utils/apiErrors.js";
 
 const STATUS_OPTIONS = [
   { value: "active", label: "Active" },
   { value: "inactive", label: "Inactive" },
 ];
+
+/**
+ * DRF returns Decimal fields as strings (e.g. "50.00"). When such a string is fed
+ * into an Ant Design Form field that has `type: "number"` validation, the rule
+ * fails (typeof "50.00" === "string"), producing misleading "X cannot be negative"
+ * errors on the edit page. Always normalise to a real Number — defaulting any
+ * missing/non-numeric value to 0 so the form fields stay valid.
+ */
+function toNumber(v, fallback = 0) {
+  if (v === null || v === undefined || v === "") return fallback;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 function newVariantRow() {
   return {
@@ -55,15 +70,16 @@ export function ProductFormPage() {
   const [form] = Form.useForm();
   const isEdit = Boolean(id);
 
+  // All categories (root + sub) — used to populate the chained selects.
   const { data: categoriesPg } = useQuery({
     queryKey: ["categories", "product-form"],
-    queryFn: () => listCategories({ page_size: 100 }),
+    queryFn: () => listCategories({ page_size: 500 }),
   });
   const categories = categoriesPg?.results ?? [];
 
   const { data: brandsPg } = useQuery({
     queryKey: ["brands", "product-form"],
-    queryFn: () => listBrands({ page_size: 100 }),
+    queryFn: () => listBrands({ page_size: 500 }),
   });
   const brands = brandsPg?.results ?? [];
 
@@ -75,41 +91,102 @@ export function ProductFormPage() {
 
   useEffect(() => {
     if (!product || !isEdit) return;
-    const cascaderVal = categoryPathForId(product.category?.id, categories);
+    const cat = product.category || {};
+    const subId = cat.parent_id ? cat.id : null;
+    const topId = cat.parent_id ? cat.parent_id : cat.id ?? null;
     const variantsSrc = product.variants?.length ? product.variants : [{ sku: "", size: "" }];
     const variants = variantsSrc.map((v, i) => ({
       key: v.id ? `v-${v.id}` : `new-${i}`,
       id: v.id,
       size: v.size || "",
       color: v.color || "",
-      weight: v.weight ?? 0,
-      volume: v.volume ?? 0,
+      weight: toNumber(v.weight),
+      volume: toNumber(v.volume),
       sku: v.sku || "",
-      price_modifier: v.price_modifier ?? 0,
-      stock: v.stock ?? 0,
+      price_modifier: toNumber(v.price_modifier),
+      stock: toNumber(v.stock),
     }));
     form.setFieldsValue({
       name: product.name,
       sku: product.sku,
       barcode: product.barcode || undefined,
-      category_cascade: cascaderVal.length ? cascaderVal : undefined,
       brand: product.brand?.id ?? undefined,
+      category_id: topId ?? undefined,
+      subcategory_id: subId ?? undefined,
       description: product.description || "",
       unit_type: product.unit_type || "pcs",
-      purchase_price: product.purchase_price,
-      selling_price: product.selling_price,
-      wholesale_price: product.wholesale_price,
-      tax_percent: product.tax_percent,
-      discount: product.discount,
-      min_stock_level: product.min_stock_level,
-      opening_stock: product.opening_stock,
-      current_stock: product.current_stock,
+      purchase_price: toNumber(product.purchase_price),
+      selling_price: toNumber(product.selling_price),
+      wholesale_price: toNumber(product.wholesale_price),
+      tax_percent: toNumber(product.tax_percent),
+      discount: toNumber(product.discount),
+      min_stock_level: toNumber(product.min_stock_level),
+      opening_stock: toNumber(product.opening_stock),
+      current_stock: toNumber(product.current_stock),
       status: product.status || "active",
       variants,
     });
-  }, [product, isEdit, form, categories]);
+  }, [product, isEdit, form]);
 
-  const cascaderOpts = cascaderCategoryOptions(categories);
+  // Watch fields for chained selects.
+  const selectedBrand = Form.useWatch("brand", form);
+  const selectedCategory = Form.useWatch("category_id", form);
+
+  // Top-level categories: filter by brand if a brand is picked. Brand-less
+  // categories ("universal") are always shown so that an item without a brand
+  // can still be classified.
+  const topLevelOptions = useMemo(() => {
+    const roots = categories.filter((c) => !c.parent);
+    const filtered = selectedBrand
+      ? roots.filter((c) => c.brand == null || c.brand === selectedBrand)
+      : roots;
+    return filtered
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => ({ value: c.id, label: c.name }));
+  }, [categories, selectedBrand]);
+
+  // Sub-categories: only children of the selected top-level category.
+  const subCategoryOptions = useMemo(() => {
+    if (!selectedCategory) return [];
+    return categories
+      .filter((c) => c.parent === selectedCategory)
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((c) => ({ value: c.id, label: c.name }));
+  }, [categories, selectedCategory]);
+
+  // If the user changes brand and the selected top category no longer belongs,
+  // reset the dependent fields so the form never submits a stale id.
+  useEffect(() => {
+    if (!selectedCategory) return;
+    const stillVisible = topLevelOptions.some((o) => o.value === selectedCategory);
+    if (!stillVisible) {
+      form.setFieldsValue({ category_id: undefined, subcategory_id: undefined });
+    }
+  }, [topLevelOptions, selectedCategory, form]);
+
+  useEffect(() => {
+    const sub = form.getFieldValue("subcategory_id");
+    if (!sub) return;
+    const stillVisible = subCategoryOptions.some((o) => o.value === sub);
+    if (!stillVisible) {
+      form.setFieldsValue({ subcategory_id: undefined });
+    }
+  }, [subCategoryOptions, form]);
+
+  // The Form.List that holds the variants. Errors at the array level (e.g.
+  // "Duplicate variant SKUs in the request.") have no inline anchor inside the
+  // list, so we additionally surface them through a toast.
+  const handleSaveError = (err) => {
+    const appliedInline = applyDrfFieldErrors(form, err);
+    const summary = collectDrfSummaryErrors(err, { listFieldNames: ["variants"] });
+    if (summary.length) {
+      message.error(summary.slice(0, 3).join(" \u2022 "));
+      return;
+    }
+    if (!appliedInline) message.error(envelopeMessage(err));
+  };
 
   const createMut = useMutation({
     mutationFn: createProduct,
@@ -118,9 +195,7 @@ export function ProductFormPage() {
       message.success("Product created.");
       navigate("/products");
     },
-    onError: (err) => {
-      if (!applyDrfFieldErrors(form, err)) message.error(envelopeMessage(err));
-    },
+    onError: handleSaveError,
   });
 
   const updateMut = useMutation({
@@ -131,14 +206,12 @@ export function ProductFormPage() {
       message.success("Product updated.");
       navigate(`/products/${id}`);
     },
-    onError: (err) => {
-      if (!applyDrfFieldErrors(form, err)) message.error(envelopeMessage(err));
-    },
+    onError: handleSaveError,
   });
 
   const onFinish = (values) => {
-    const path = values.category_cascade;
-    const categoryId = Array.isArray(path) ? path[path.length - 1] : path;
+    // Final category id = subcategory if picked, otherwise the top-level one.
+    const categoryId = values.subcategory_id ?? values.category_id ?? null;
     if (categoryId == null) {
       message.error("Select a category (and sub-category if applicable).");
       return;
@@ -150,11 +223,11 @@ export function ProductFormPage() {
         const v = {
           size: (row.size || "").trim(),
           color: (row.color || "").trim(),
-          weight: row.weight ?? 0,
-          volume: row.volume ?? 0,
+          weight: toNumber(row.weight),
+          volume: toNumber(row.volume),
           sku: (row.sku || "").trim(),
-          price_modifier: row.price_modifier ?? 0,
-          stock: row.stock ?? 0,
+          price_modifier: toNumber(row.price_modifier),
+          stock: toNumber(row.stock),
         };
         if (row.id != null && row.id !== "") v.id = row.id;
         return v;
@@ -171,14 +244,14 @@ export function ProductFormPage() {
       brand: values.brand ?? null,
       description: (values.description || "").trim(),
       unit_type: (values.unit_type || "pcs").trim(),
-      purchase_price: values.purchase_price ?? 0,
-      selling_price: values.selling_price ?? 0,
-      wholesale_price: values.wholesale_price ?? 0,
-      tax_percent: values.tax_percent ?? 0,
-      discount: values.discount ?? 0,
-      min_stock_level: values.min_stock_level ?? 0,
-      opening_stock: values.opening_stock ?? 0,
-      current_stock: values.current_stock ?? 0,
+      purchase_price: toNumber(values.purchase_price),
+      selling_price: toNumber(values.selling_price),
+      wholesale_price: toNumber(values.wholesale_price),
+      tax_percent: toNumber(values.tax_percent),
+      discount: toNumber(values.discount),
+      min_stock_level: toNumber(values.min_stock_level),
+      opening_stock: toNumber(values.opening_stock),
+      current_stock: toNumber(values.current_stock),
       status: values.status || "active",
       variants,
     };
@@ -236,41 +309,29 @@ export function ProductFormPage() {
               </Form.Item>
             </Col>
           </Row>
+
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+            <strong>Tip:</strong> pick a <strong>Brand</strong> first — the category list
+            below will filter to that brand. Then pick a <strong>Category</strong> and the
+            <strong> Sub-category</strong> options will appear.
+          </Typography.Paragraph>
+
           <Row gutter={16}>
-            <Col xs={24} md={12}>
-              <Form.Item
-                name="category_cascade"
-                label="Category / sub-category"
-                rules={[{ required: true, message: "Pick a category" }]}
-              >
-                <Cascader
-                  options={cascaderOpts}
-                  changeOnSelect
-                  placeholder="e.g. Apparel › Shirts"
-                  showSearch={{
-                    filter: (inputVal, path) =>
-                      path.some((p) => String(p.label || "").toLowerCase().includes(inputVal.toLowerCase())),
-                  }}
-                  style={{ width: "100%" }}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={6}>
+            <Col xs={24} md={8}>
               <Form.Item
                 name="brand"
                 label="Brand"
                 extra={
                   brands.length === 0 ? (
                     <Typography.Text type="secondary">
-                      No brands yet. Open{" "}
-                      <Link to="/brands">Catalog → Brands</Link> to create them, then return here.
+                      No brands yet. Open <Link to="/brands">Catalog → Brands</Link> to create one.
                     </Typography.Text>
                   ) : null
                 }
               >
                 <Select
                   allowClear
-                  placeholder="Optional"
+                  placeholder="Select a brand (optional)"
                   options={brands.map((b) => ({ value: b.id, label: b.name }))}
                   showSearch
                   optionFilterProp="label"
@@ -282,12 +343,64 @@ export function ProductFormPage() {
                 />
               </Form.Item>
             </Col>
+            <Col xs={24} md={8}>
+              <Form.Item
+                name="category_id"
+                label="Category"
+                rules={[{ required: true, message: "Pick a category" }]}
+                extra={
+                  selectedBrand && topLevelOptions.length === 0 ? (
+                    <Typography.Text type="warning">
+                      No categories linked to this brand. <Link to="/categories">Add one</Link>.
+                    </Typography.Text>
+                  ) : null
+                }
+              >
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder={
+                    selectedBrand ? "Categories for this brand" : "Pick a category"
+                  }
+                  options={topLevelOptions}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.Item
+                name="subcategory_id"
+                label="Sub-category"
+                extra={
+                  selectedCategory && subCategoryOptions.length === 0 ? (
+                    <Typography.Text type="secondary">
+                      No sub-categories for this category. <Link to="/subcategories">Add one</Link>.
+                    </Typography.Text>
+                  ) : null
+                }
+              >
+                <Select
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder={
+                    selectedCategory ? "Optional sub-category" : "Pick a category first"
+                  }
+                  options={subCategoryOptions}
+                  disabled={!selectedCategory}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
             <Col xs={24} md={6}>
               <Form.Item name="unit_type" label="Unit">
                 <Input placeholder="pcs, kg, L …" />
               </Form.Item>
             </Col>
           </Row>
+
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} placeholder="Short description" />
           </Form.Item>
@@ -307,11 +420,7 @@ export function ProductFormPage() {
                 extra="What you pay the supplier (numbers only)."
                 rules={[
                   { required: true, message: "Enter cost price." },
-                  {
-                    type: "number",
-                    min: 0,
-                    message: "Cost cannot be negative.",
-                  },
+                  { type: "number", min: 0, message: "Cost cannot be negative." },
                 ]}
               >
                 <InputNumber min={0} step={0.01} precision={2} style={{ width: "100%" }} controls />
@@ -381,12 +490,7 @@ export function ProductFormPage() {
                 extra="Numbers from 0–100 only (tax rate, not rupees)."
                 rules={[
                   { required: true, message: "Enter GST/tax percent (use 0 if none)." },
-                  {
-                    type: "number",
-                    min: 0,
-                    max: 100,
-                    message: "Must be between 0 and 100.",
-                  },
+                  { type: "number", min: 0, max: 100, message: "Must be between 0 and 100." },
                 ]}
               >
                 <InputNumber
@@ -408,12 +512,7 @@ export function ProductFormPage() {
                 label="Discount %"
                 extra="Max discount on this item (0–100). Letters not allowed."
                 rules={[
-                  {
-                    type: "number",
-                    min: 0,
-                    max: 100,
-                    message: "Discount must be between 0 and 100.",
-                  },
+                  { type: "number", min: 0, max: 100, message: "Discount must be between 0 and 100." },
                 ]}
               >
                 <InputNumber

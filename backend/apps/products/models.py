@@ -2,6 +2,13 @@ from django.db import models
 from django.utils.text import slugify
 
 
+class Brand(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
 class Category(models.Model):
     name = models.CharField(max_length=255)
     parent = models.ForeignKey(
@@ -10,6 +17,15 @@ class Category(models.Model):
         null=True,
         blank=True,
         related_name="children",
+    )
+    # Brand is optional. When set, the category is shown only when its brand is selected
+    # on the product form; brand-less categories are treated as universal.
+    brand = models.ForeignKey(
+        "Brand",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="categories",
     )
     slug = models.SlugField(max_length=255, unique=True, blank=True)
 
@@ -27,13 +43,6 @@ class Category(models.Model):
                 n += 1
             self.slug = slug
         super().save(*args, **kwargs)
-
-    def __str__(self):
-        return self.name
-
-
-class Brand(models.Model):
-    name = models.CharField(max_length=255, unique=True)
 
     def __str__(self):
         return self.name

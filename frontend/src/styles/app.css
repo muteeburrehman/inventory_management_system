@@ -1,7 +1,14 @@
 :root {
-  --ims-sidebar: #0c1e2e;
-  --ims-sidebar-active: #0f766e;
-  --ims-page-bg: #f0f4f8;
+  /* Slightly deeper, more saturated dark for a modern dashboard feel. */
+  --ims-sidebar: #0f172a;
+  --ims-sidebar-border: rgba(148, 163, 184, 0.12);
+  --ims-sidebar-text: #cbd5e1;
+  --ims-sidebar-text-muted: #94a3b8;
+  --ims-sidebar-text-strong: #f1f5f9;
+  --ims-sidebar-active-bg: rgba(20, 184, 166, 0.18);
+  --ims-sidebar-active-border: #2dd4bf;
+  --ims-sidebar-hover-bg: rgba(148, 163, 184, 0.08);
+  --ims-page-bg: #f3f6fb;
 }
 
 body {
@@ -9,30 +16,410 @@ body {
   background: var(--ims-page-bg);
 }
 
+/* ----------------------------------------------------------------------------
+   Sidebar shell — sticky on the page, full-height, with a 3-row inner layout
+   (brand + scrollable menu + user footer).
+---------------------------------------------------------------------------- */
+
 .ims-sider .ant-layout-sider-children {
   display: flex;
   flex-direction: column;
 }
 
-.ims-logo {
-  padding: 20px 18px 18px;
-  color: #e2e8f0;
-  font-weight: 700;
-  font-size: 0.95rem;
-  letter-spacing: 0.02em;
-  line-height: 1.35;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+.ims-sider__inner {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  min-height: 0;
 }
 
-.ims-logo small {
-  display: block;
-  font-weight: 500;
-  font-size: 0.72rem;
-  opacity: 0.55;
-  margin-top: 4px;
-  letter-spacing: 0.06em;
+.ims-sider__brand {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ims-sidebar-border);
+  min-height: 68px;
+}
+
+.ims-sider__brand.is-collapsed {
+  padding: 14px 12px;
+  justify-content: center;
+}
+
+.ims-sider__brand-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--ims-sidebar-text-strong);
+  min-width: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  border-radius: 10px;
+  padding: 4px;
+  margin: -4px;
+  transition: background-color 0.15s ease;
+}
+
+.ims-sider__brand-link:hover {
+  background-color: rgba(20, 184, 166, 0.08);
+}
+
+.ims-sider__brand-link:focus-visible {
+  outline: 2px solid var(--ims-sidebar-active-border, #14b8a6);
+  outline-offset: 2px;
+}
+
+.ims-sider__brand-mark {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.04em;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25) inset, 0 0 0 1px rgba(45, 212, 191, 0.25);
+}
+
+.ims-sider__brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.ims-sider__brand-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  line-height: 1.25;
+  letter-spacing: 0.005em;
+  color: var(--ims-sidebar-text-strong);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.ims-sider__brand-sub {
+  font-weight: 600;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ims-sidebar-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ims-sider__toggle.ant-btn {
+  color: var(--ims-sidebar-text-muted);
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ims-sider__toggle.ant-btn:hover {
+  background: var(--ims-sidebar-hover-bg) !important;
+  color: var(--ims-sidebar-text-strong) !important;
+}
+
+/* ----------------------------------------------------------------------------
+   Scrollable menu area.
+---------------------------------------------------------------------------- */
+
+.ims-sider__menuwrap {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 10px 18px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+
+.ims-sider__menuwrap::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ims-sider__menuwrap::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 6px;
+}
+
+.ims-sider__menuwrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Section group label (the "Main", "Catalog", "Trade"... headers). */
+.ims-sider .ant-menu-item-group-title {
+  padding: 14px 14px 6px !important;
+  color: var(--ims-sidebar-text-muted) !important;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+
+.ims-sider .ant-menu-inline {
+  background: transparent;
+}
+
+.ims-sider .ant-menu-inline,
+.ims-sider .ant-menu-inline-collapsed {
+  border-inline-end: none !important;
+}
+
+/* Make every menu row a comfortable, rounded "pill". */
+.ims-sider .ant-menu-item,
+.ims-sider .ant-menu-submenu-title {
+  margin: 2px 6px !important;
+  width: calc(100% - 12px) !important;
+  border-radius: 10px !important;
+  height: 40px !important;
+  line-height: 40px !important;
+  color: var(--ims-sidebar-text) !important;
+  font-weight: 500;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.ims-sider .ant-menu-item a,
+.ims-sider .ant-menu-submenu-title a {
+  color: inherit !important;
+}
+
+.ims-sider .ant-menu-item:hover,
+.ims-sider .ant-menu-submenu-title:hover {
+  background: var(--ims-sidebar-hover-bg) !important;
+  color: var(--ims-sidebar-text-strong) !important;
+}
+
+/* ----------------------------------------------------------------------------
+   Parent rows (those with sub-items). We want them to read as section
+   headers, distinct from regular link rows.
+---------------------------------------------------------------------------- */
+
+/* Slightly bolder type than leaves. */
+.ims-sider .ant-menu-submenu > .ant-menu-submenu-title {
+  font-weight: 600 !important;
+  letter-spacing: 0.005em;
+}
+
+/* The chevron — bigger, brighter, with a subtle pill background so users see
+   "this row expands" at a glance. AntD's default arrow span is hidden by our
+   custom <RightOutlined /> expandIcon, but defensively kill it here too. */
+.ims-sider .ant-menu-submenu-arrow {
+  display: none !important;
+}
+
+.ims-sider .ant-menu-submenu-expand-icon,
+.ims-sider .ims-sider__chevron {
+  color: rgba(226, 232, 240, 0.55) !important;
+  background: rgba(148, 163, 184, 0.08);
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px !important;
+}
+
+.ims-sider .ant-menu-submenu-title:hover .ims-sider__chevron {
+  color: #ffffff !important;
+  background: rgba(148, 163, 184, 0.18);
+}
+
+/* When a section is open, give the parent a clear "opened" look + tint the
+   chevron with the brand colour so the state pops. */
+.ims-sider .ant-menu-submenu-open > .ant-menu-submenu-title {
+  background: rgba(148, 163, 184, 0.08) !important;
+  color: var(--ims-sidebar-text-strong) !important;
+}
+
+.ims-sider .ant-menu-submenu-open > .ant-menu-submenu-title .ims-sider__chevron {
+  color: var(--ims-sidebar-active-border) !important;
+  background: rgba(45, 212, 191, 0.14);
+}
+
+/* Active leaf — coloured background and a left accent. */
+.ims-sider .ant-menu-item-selected {
+  background: var(--ims-sidebar-active-bg) !important;
+  color: var(--ims-sidebar-text-strong) !important;
+  position: relative;
+}
+
+.ims-sider .ant-menu-item-selected::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: -6px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--ims-sidebar-active-border);
+}
+
+.ims-sider .ant-menu-item-selected a {
+  color: var(--ims-sidebar-text-strong) !important;
+}
+
+/* ----------------------------------------------------------------------------
+   Sub-menu (children) — indented, with a vertical guide line so the nesting
+   is obvious. Mirrors the file-tree pattern used in VS Code / GitHub.
+---------------------------------------------------------------------------- */
+
+.ims-sider .ant-menu-sub.ant-menu-inline {
+  background: transparent !important;
+  position: relative;
+  padding-left: 4px;
+}
+
+.ims-sider .ant-menu-sub.ant-menu-inline::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 22px;
+  width: 1px;
+  background: rgba(148, 163, 184, 0.18);
+  border-radius: 1px;
+}
+
+.ims-sider .ant-menu-sub .ant-menu-item {
+  margin: 2px 6px 2px 18px !important;
+  width: calc(100% - 24px) !important;
+  height: 36px !important;
+  line-height: 36px !important;
+  font-weight: 500;
+}
+
+/* Deep-nested submenu titles (a parent inside another parent) keep the same
+   styling as the rest of the inline tree. */
+.ims-sider .ant-menu-sub .ant-menu-submenu-title {
+  margin-left: 18px !important;
+  width: calc(100% - 24px) !important;
+  height: 36px !important;
+  line-height: 36px !important;
+}
+
+/* ----------------------------------------------------------------------------
+   Collapsed (icon-only) sidebar tweaks.
+---------------------------------------------------------------------------- */
+
+.ims-sider .ant-menu-inline-collapsed > .ant-menu-item,
+.ims-sider .ant-menu-inline-collapsed > .ant-menu-submenu > .ant-menu-submenu-title {
+  padding-inline: 0 !important;
+  justify-content: center;
+}
+
+.ims-sider .ant-menu-inline-collapsed .ant-menu-item-group-title {
+  display: none !important;
+}
+
+/* In collapsed mode the chevron is meaningless (the popout flyout opens
+   instead) — hide it to keep the icon centred. */
+.ims-sider .ant-menu-inline-collapsed .ims-sider__chevron,
+.ims-sider .ant-menu-inline-collapsed .ant-menu-submenu-expand-icon {
+  display: none !important;
+}
+
+/* ----------------------------------------------------------------------------
+   User footer card at the bottom of the sidebar.
+---------------------------------------------------------------------------- */
+
+.ims-sider__footer {
+  padding: 10px;
+  border-top: 1px solid var(--ims-sidebar-border);
+}
+
+.ims-sider__user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: rgba(148, 163, 184, 0.06);
+  border: 1px solid var(--ims-sidebar-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: var(--ims-sidebar-text-strong);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.ims-sider__user:hover {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.ims-sider__footer.is-collapsed .ims-sider__user {
+  justify-content: center;
+  padding: 8px;
+}
+
+.ims-sider__user-text {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.ims-sider__user-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ims-sidebar-text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.ims-sider__user-role {
+  font-size: 0.7rem;
+  color: var(--ims-sidebar-text-muted);
+  text-transform: capitalize;
+}
+
+/* ----------------------------------------------------------------------------
+   Top header (slim, only holds the menu toggle + branch picker).
+---------------------------------------------------------------------------- */
+
+.ims-header.ant-layout-header {
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+}
+
+.ims-header__toggle.ant-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.05rem;
+  color: #475569;
+}
+
+.ims-header__toggle.ant-btn:hover {
+  color: #0f172a;
+  background: rgba(15, 23, 42, 0.05) !important;
+}
+
+/* ----------------------------------------------------------------------------
+   Cards & misc.
+---------------------------------------------------------------------------- */
 
 .ims-card.ant-card {
   border-radius: 12px;
@@ -47,8 +434,4 @@ body {
   font-size: 0.8rem;
   color: #64748b;
   font-weight: 500;
-}
-
-.ims-header.ant-layout-header {
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
 }

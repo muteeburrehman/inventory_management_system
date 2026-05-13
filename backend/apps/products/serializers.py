@@ -8,14 +8,18 @@ from .models import Brand, Category, Product, ProductVariant
 
 class CategorySerializer(serializers.ModelSerializer):
     parent_name = serializers.SerializerMethodField()
+    brand_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
-        fields = ("id", "name", "parent", "slug", "parent_name")
+        fields = ("id", "name", "parent", "brand", "slug", "parent_name", "brand_name")
         read_only_fields = ("slug",)
 
     def get_parent_name(self, obj):
         return obj.parent.name if obj.parent_id else None
+
+    def get_brand_name(self, obj):
+        return obj.brand.name if obj.brand_id else None
 
     def validate_name(self, value):
         s = (value or "").strip()
@@ -54,10 +58,11 @@ class CategoryNestedSerializer(serializers.ModelSerializer):
 
     parent_id = serializers.IntegerField(read_only=True)
     parent_name = serializers.SerializerMethodField()
+    brand_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Category
-        fields = ("id", "name", "slug", "parent_id", "parent_name")
+        fields = ("id", "name", "slug", "parent_id", "parent_name", "brand_id")
 
     def get_parent_name(self, obj):
         return obj.parent.name if obj.parent_id else None
@@ -124,36 +129,96 @@ class ProductVariantInputSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductVariant
         fields = ("id", "size", "color", "weight", "volume", "sku", "price_modifier", "stock")
+        # ProductVariant.sku is `unique=True`, so DRF auto-attaches a UniqueValidator.
+        # That validator has no idea this row may already *be* the variant it's
+        # comparing against when we're nested inside a product PATCH, which would
+        # cause a 400 ("product variant with this sku already exists") on every
+        # no-op edit. Disable it here — `validate_sku()` below performs the
+        # uniqueness check with proper self-exclusion via the row's id.
+        extra_kwargs = {"sku": {"validators": []}}
+
+    def _parent_product_pk(self, row_id=None):
+        """The pk of the product this variant belongs to, used to exclude the
+        product itself when checking the variant SKU against master SKUs and
+        barcodes of other products."""
+        # When used standalone (e.g. PATCH on the /variants/<id>/ detail action)
+        # self.instance is set.
+        inst = getattr(self, "instance", None)
+        if getattr(inst, "product_id", None):
+            return inst.product_id
+        # When nested under ProductWriteSerializer, walk the serializer tree:
+        # row -> ListSerializer -> ProductWriteSerializer (whose .instance is
+        # the Product on PATCH).
+        parent = getattr(self, "parent", None)
+        while parent is not None:
+            pinst = getattr(parent, "instance", None)
+            if isinstance(pinst, Product):
+                return pinst.pk
+            parent = getattr(parent, "parent", None)
+        # Last fallback: look it up from the row id, when provided.
+        if row_id:
+            v = ProductVariant.objects.filter(pk=row_id).only("product_id").first()
+            if v:
+                return v.product_id
+        return None
 
     def validate_sku(self, value):
+        # Only do the cheap, content-only checks here. The uniqueness lookups
+        # that need to know about the row id (for self-exclusion on edits) are
+        # done in the object-level `validate()` below where `attrs` includes
+        # the id field.
         s = _norm_sku(value)
         if not s:
             raise serializers.ValidationError("Variant SKU is required.")
         if len(s) > 100:
             raise serializers.ValidationError("Variant SKU must be at most 100 characters.")
-        qs = ProductVariant.objects.filter(sku__iexact=s)
-        inst = getattr(self, "instance", None)
-        if getattr(inst, "pk", None):
-            qs = qs.exclude(pk=inst.pk)
-        if qs.exists():
-            raise serializers.ValidationError("This variant SKU is already in use.")
+        return s
 
-        qp = Product.objects.filter(sku__iexact=s)
-        if getattr(inst, "pk", None) and getattr(inst, "product_id", None):
-            qp = qp.exclude(pk=inst.product_id)
+    def validate(self, attrs):
+        sku = _norm_sku(attrs.get("sku", "") or getattr(self.instance, "sku", "") or "")
+        if not sku:
+            # validate_sku already enforced "required" — bail out cleanly.
+            return attrs
+
+        # Resolve which variant this row is so we can exclude it from the
+        # uniqueness checks. Prefer `self.instance` (standalone use), then the
+        # explicit `id` carried in the row (nested-under-product use).
+        existing = getattr(self, "instance", None)
+        row_id = attrs.get("id")
+        if not getattr(existing, "pk", None) and row_id:
+            existing = ProductVariant.objects.filter(pk=row_id).first()
+
+        product_pk = self._parent_product_pk(row_id=row_id)
+
+        qs = ProductVariant.objects.filter(sku__iexact=sku)
+        if existing:
+            qs = qs.exclude(pk=existing.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                {"sku": "This variant SKU is already in use."}
+            )
+
+        qp = Product.objects.filter(sku__iexact=sku)
+        if product_pk:
+            qp = qp.exclude(pk=product_pk)
         if qp.exists():
-            raise serializers.ValidationError("Variant SKU matches another product's master SKU.")
+            raise serializers.ValidationError(
+                {"sku": "Variant SKU matches another product's master SKU."}
+            )
 
         qb = (
             Product.objects.exclude(barcode__isnull=True)
             .exclude(barcode__exact="")
-            .filter(barcode__iexact=s)
+            .filter(barcode__iexact=sku)
         )
-        if getattr(inst, "pk", None) and getattr(inst, "product_id", None):
-            qb = qb.exclude(pk=inst.product_id)
+        if product_pk:
+            qb = qb.exclude(pk=product_pk)
         if qb.exists():
-            raise serializers.ValidationError("Variant SKU matches another product barcode.")
-        return s
+            raise serializers.ValidationError(
+                {"sku": "Variant SKU matches another product barcode."}
+            )
+
+        return attrs
 
     def validate_weight(self, value):
         if value is None:

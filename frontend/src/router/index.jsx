@@ -11,6 +11,7 @@ import { ProductsPage } from "../pages/Products/ProductsPage.jsx";
 import { ProductFormPage } from "../pages/Products/ProductFormPage.jsx";
 import { ProductDetailPage } from "../pages/Products/ProductDetailPage.jsx";
 import { CategoriesPage } from "../pages/Categories/CategoriesPage.jsx";
+import { SubcategoriesPage } from "../pages/Categories/SubcategoriesPage.jsx";
 import { BrandsPage } from "../pages/Brands/BrandsPage.jsx";
 import { SuppliersPage } from "../pages/Suppliers/SuppliersPage.jsx";
 import { CustomersPage } from "../pages/Customers/CustomersPage.jsx";
@@ -55,6 +56,7 @@ export const router = createBrowserRouter([
       { path: "products/:id", element: <ProductDetailPage /> },
       { path: "products", element: <ProductsPage /> },
       { path: "categories", element: <CategoriesPage /> },
+      { path: "subcategories", element: <SubcategoriesPage /> },
       { path: "brands", element: <BrandsPage /> },
       { path: "suppliers", element: <SuppliersPage /> },
       { path: "customers", element: <CustomersPage /> },

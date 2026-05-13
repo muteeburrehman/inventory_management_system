@@ -11,14 +11,18 @@ import {
   Tag,
   Typography,
 } from "antd";
-import { EditOutlined, FolderOutlined, PlusOutlined, DeleteOutlined } from "@ant-design/icons";
-import { useState } from "react";
+import {
+  ApartmentOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+} from "@ant-design/icons";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createCategory,
   deleteCategory,
-  listBrands,
   listCategories,
   updateCategory,
 } from "../../api/products.js";
@@ -27,7 +31,7 @@ import { PageShell } from "../../components/PageShell/PageShell.jsx";
 import { applyDrfFieldErrors, envelopeMessage } from "../../utils/apiErrors.js";
 import { antServerPagination } from "../../utils/serverPagination.js";
 
-export function CategoriesPage() {
+export function SubcategoriesPage() {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const [form] = Form.useForm();
@@ -35,30 +39,38 @@ export function CategoriesPage() {
   const [editing, setEditing] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [brandFilter, setBrandFilter] = useState(undefined);
+  const [parentFilter, setParentFilter] = useState(undefined);
 
-  // Brand list — used both as a filter on the page and as an optional dropdown
-  // inside the add/edit modal.
-  const brandsQ = useQuery({
-    queryKey: ["brands", "categories-page"],
-    queryFn: () => listBrands({ page_size: 500 }),
+  // Top-level categories: used both as the page filter and as the required
+  // "Parent category" dropdown inside the modal.
+  const rootCategoriesQ = useQuery({
+    queryKey: ["categories", "list", "root", "all-for-sub"],
+    queryFn: () => listCategories({ level: "root", page_size: 500 }),
   });
-  const brands = brandsQ.data?.results ?? [];
+  const rootCategories = rootCategoriesQ.data?.results ?? [];
 
-  // Categories page only ever shows top-level rows (parent is null). Sub-categories
-  // are managed on /subcategories so the two flows stay distinct.
-  const categoriesQ = useQuery({
-    queryKey: ["categories", "list", "root", page, pageSize, brandFilter ?? "any"],
+  const rootOptions = useMemo(
+    () =>
+      rootCategories
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((c) => ({ value: c.id, label: c.name })),
+    [rootCategories],
+  );
+
+  // Subcategories list (parent is not null).
+  const subQ = useQuery({
+    queryKey: ["categories", "list", "sub", page, pageSize, parentFilter ?? "any"],
     queryFn: () =>
       listCategories({
         page,
         page_size: pageSize,
-        level: "root",
-        ...(brandFilter ? { brand: brandFilter } : {}),
+        level: "sub",
+        ...(parentFilter ? { parent: parentFilter } : {}),
       }),
   });
-  const rows = categoriesQ.data?.results ?? [];
-  const total = categoriesQ.data?.count ?? 0;
+  const rows = subQ.data?.results ?? [];
+  const total = subQ.data?.count ?? 0;
 
   const closeModal = () => {
     setModalOpen(false);
@@ -69,9 +81,7 @@ export function CategoriesPage() {
   const openCreate = () => {
     setEditing(null);
     form.resetFields();
-    // Pre-fill brand if a brand filter is currently active so new categories
-    // inherit the user's current scope.
-    if (brandFilter) form.setFieldsValue({ brand: brandFilter });
+    if (parentFilter) form.setFieldsValue({ parent: parentFilter });
     setModalOpen(true);
   };
 
@@ -79,7 +89,7 @@ export function CategoriesPage() {
     setEditing(record);
     form.setFieldsValue({
       name: record.name,
-      brand: record.brand ?? undefined,
+      parent: record.parent ?? undefined,
     });
     setModalOpen(true);
   };
@@ -89,7 +99,7 @@ export function CategoriesPage() {
       id ? updateCategory(id, values) : createCategory(values),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["categories"] });
-      message.success(editing ? "Category updated." : "Category created.");
+      message.success(editing ? "Sub-category updated." : "Sub-category created.");
       closeModal();
     },
     onError: (err) => {
@@ -101,7 +111,7 @@ export function CategoriesPage() {
     mutationFn: deleteCategory,
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["categories"] });
-      message.success("Category deleted.");
+      message.success("Sub-category deleted.");
     },
     onError: (err) => {
       const payload = err?.response?.data;
@@ -113,12 +123,13 @@ export function CategoriesPage() {
 
   const onSubmit = () => {
     form.validateFields().then((values) => {
+      // Brand is intentionally not exposed here — a sub-category inherits its
+      // brand context from the parent category. The backend serializer accepts
+      // brand: null which keeps the row consistent.
       const body = {
         name: (values.name || "").trim(),
-        // Top-level categories never have a parent.
-        parent: null,
-        // Brand is optional. Send `null` to clear it on edit.
-        brand: values.brand ?? null,
+        parent: values.parent,
+        brand: null,
       };
       saveMut.mutate({ id: editing?.id, values: body });
     });
@@ -132,11 +143,11 @@ export function CategoriesPage() {
       ellipsis: true,
     },
     {
-      title: "Brand",
-      dataIndex: "brand_name",
-      key: "brand_name",
-      width: 200,
-      render: (b) => b || <Tag color="default">Universal</Tag>,
+      title: "Parent category",
+      dataIndex: "parent_name",
+      key: "parent_name",
+      width: 220,
+      render: (p) => p || <Tag color="warning">missing parent</Tag>,
     },
     {
       title: "Slug",
@@ -160,8 +171,8 @@ export function CategoriesPage() {
             Edit
           </Button>
           <ConfirmDeleteButton
-            title="Delete this category?"
-            description="Must have no sub-categories and no linked products."
+            title="Delete this sub-category?"
+            description="Products still linked to it must be moved first."
             onConfirm={() => delMut.mutateAsync(record.id)}
             icon={<DeleteOutlined />}
             loading={delMut.isPending}
@@ -175,12 +186,12 @@ export function CategoriesPage() {
 
   return (
     <PageShell
-      title="Categories"
-      description="Top-level product categories. Brand is optional — leave it blank for a category that applies to every brand."
+      title="Sub-categories"
+      description="Nested categories — every sub-category must belong to a parent category."
       breadcrumb={[
         { title: "Home", path: "/" },
         { title: "Catalog", path: "/products" },
-        { title: "Categories" },
+        { title: "Sub-categories" },
       ]}
     >
       <Card
@@ -188,8 +199,8 @@ export function CategoriesPage() {
         className="ims-card"
         title={
           <Space>
-            <FolderOutlined />
-            <span>Categories</span>
+            <ApartmentOutlined />
+            <span>Sub-categories</span>
             <Typography.Text type="secondary">({total})</Typography.Text>
           </Space>
         }
@@ -197,36 +208,46 @@ export function CategoriesPage() {
           <Space wrap>
             <Select
               allowClear
-              placeholder="Filter by brand"
-              style={{ minWidth: 220 }}
-              value={brandFilter}
+              placeholder="Filter by parent category"
+              style={{ minWidth: 240 }}
+              value={parentFilter}
               onChange={(v) => {
-                setBrandFilter(v);
+                setParentFilter(v);
                 setPage(1);
               }}
-              options={brands.map((b) => ({ value: b.id, label: b.name }))}
-              loading={brandsQ.isLoading}
+              options={rootOptions}
+              loading={rootCategoriesQ.isLoading}
               showSearch
               optionFilterProp="label"
             />
-            <Link to="/subcategories">
-              <Button>Manage sub-categories →</Button>
+            <Link to="/categories">
+              <Button>Manage categories →</Button>
             </Link>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              Add category
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={openCreate}
+              disabled={rootOptions.length === 0}
+            >
+              Add sub-category
             </Button>
           </Space>
         }
       >
-        <Typography.Paragraph type="secondary">
-          A category may optionally belong to a <strong>brand</strong> — pick one to scope the
-          category (e.g. <em>Coke → Cold Drinks</em>), or leave it blank for a brand-agnostic
-          category that appears for all brands on the product form. Use <Link to="/subcategories">
-          Sub-categories</Link> to nest things like <em>Cold Drinks → Bottles</em>.
-        </Typography.Paragraph>
+        {rootOptions.length === 0 ? (
+          <Typography.Paragraph type="warning">
+            You need at least one top-level <Link to="/categories">category</Link> before you
+            can add sub-categories.
+          </Typography.Paragraph>
+        ) : (
+          <Typography.Paragraph type="secondary">
+            Picking a <strong>Parent category</strong> is required. Example: under
+            <em> Cold Drinks </em> you can add <em>Bottles</em>, <em>Cans</em>, etc.
+          </Typography.Paragraph>
+        )}
         <Table
           rowKey="id"
-          loading={categoriesQ.isLoading}
+          loading={subQ.isLoading}
           pagination={antServerPagination({
             page,
             pageSize,
@@ -242,7 +263,7 @@ export function CategoriesPage() {
       </Card>
 
       <Modal
-        title={editing ? "Edit category" : "Add category"}
+        title={editing ? "Edit sub-category" : "Add sub-category"}
         open={modalOpen}
         onCancel={closeModal}
         destroyOnClose
@@ -252,24 +273,23 @@ export function CategoriesPage() {
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item
-            name="name"
-            label="Name"
-            rules={[{ required: true, whitespace: true, message: "Enter a category name" }]}
-          >
-            <Input placeholder="e.g. Cold Drinks, Snacks, Bakery" />
-          </Form.Item>
-          <Form.Item
-            name="brand"
-            label="Brand (optional)"
-            extra="Pick a brand to scope this category to it. Leave empty for a universal category."
+            name="parent"
+            label="Parent category"
+            rules={[{ required: true, message: "Pick a parent category" }]}
           >
             <Select
-              allowClear
               showSearch
               optionFilterProp="label"
-              placeholder="No brand — universal"
-              options={brands.map((b) => ({ value: b.id, label: b.name }))}
+              placeholder="Choose the parent category"
+              options={rootOptions}
             />
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="Sub-category name"
+            rules={[{ required: true, whitespace: true, message: "Enter a name" }]}
+          >
+            <Input placeholder="e.g. Bottles, Cans, 500ml" />
           </Form.Item>
         </Form>
       </Modal>

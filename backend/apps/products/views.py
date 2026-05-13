@@ -1,3 +1,4 @@
+from django.db import models
 from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -28,12 +29,54 @@ def _ensure_variant_sku_vs_product(product: Product, sku: str):
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
-    queryset = Category.objects.select_related("parent").all()
+    queryset = Category.objects.select_related("parent", "brand").all()
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated]
     search_fields = ("name", "slug")
     ordering_fields = ("name", "id")
+    filterset_fields = ("parent", "brand")
     envelope_message = "Categories."
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Convenience filters used by the frontend:
+        #   ?level=root        -> top-level only (parent is null)
+        #   ?level=sub         -> sub-categories only (parent is not null)
+        #   ?parent_isnull=1/0 -> explicit null/not-null on parent
+        #   ?brand_include_null=1 (with ?brand=N) -> include brand-less ("universal") categories
+        params = self.request.query_params
+        level = (params.get("level") or "").lower().strip()
+        if level == "root":
+            qs = qs.filter(parent__isnull=True)
+        elif level in ("sub", "subcategory", "subcategories"):
+            qs = qs.filter(parent__isnull=False)
+
+        pn = params.get("parent_isnull")
+        if pn in ("1", "true", "True"):
+            qs = qs.filter(parent__isnull=True)
+        elif pn in ("0", "false", "False"):
+            qs = qs.filter(parent__isnull=False)
+
+        brand_id = params.get("brand")
+        include_null = (params.get("brand_include_null") or "").lower() in ("1", "true")
+        if brand_id and include_null:
+            try:
+                bid = int(brand_id)
+                qs = super().get_queryset().filter(
+                    models.Q(brand_id=bid) | models.Q(brand__isnull=True)
+                )
+                # Re-apply level filters that were stripped when we restarted the qs.
+                if level == "root":
+                    qs = qs.filter(parent__isnull=True)
+                elif level in ("sub", "subcategory", "subcategories"):
+                    qs = qs.filter(parent__isnull=False)
+                if pn in ("1", "true", "True"):
+                    qs = qs.filter(parent__isnull=True)
+                elif pn in ("0", "false", "False"):
+                    qs = qs.filter(parent__isnull=False)
+            except (TypeError, ValueError):
+                pass
+        return qs
 
     def perform_destroy(self, instance):
         if Category.objects.filter(parent=instance).exists():
@@ -44,7 +87,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="tree")
     def tree(self, request):
-        rows = list(Category.objects.values("id", "name", "slug", "parent_id"))
+        rows = list(
+            Category.objects.values("id", "name", "slug", "parent_id", "brand_id")
+        )
+        brand_names = dict(Brand.objects.values_list("id", "name"))
         node_ids = {r["id"] for r in rows}
         nodes = {
             r["id"]: {
@@ -53,6 +99,8 @@ class CategoryViewSet(viewsets.ModelViewSet):
                 "name": r["name"],
                 "slug": r["slug"],
                 "parent_id": r["parent_id"],
+                "brand_id": r["brand_id"],
+                "brand_name": brand_names.get(r["brand_id"]) if r["brand_id"] else None,
                 "children": [],
             }
             for r in rows
