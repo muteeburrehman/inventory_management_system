@@ -1,6 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from apps.accounts.audit_views import AuditLogViewSet
 from apps.accounts.views import (
     LoginView,
     PermissionListUpdateAPI,
@@ -33,8 +34,10 @@ from apps.reports.views import (
     profit_report,
     purchases_report,
     sales_report,
+    tax_report,
 )
 from apps.sales.views import CouponViewSet, SaleViewSet
+from apps.settings_app.backup_views import backup_export, backup_history
 from apps.settings_app.views import (
     BranchViewSet,
     BusinessSettingsAPIView,
@@ -54,6 +57,8 @@ router.register(r"ledger", LedgerViewSet, basename="ledger")
 router.register(r"expenses", ExpenseViewSet, basename="expense")
 router.register(r"settings/branches", BranchViewSet, basename="branch")
 router.register(r"notifications", NotificationViewSet, basename="notification")
+router.register(r"audit-logs", AuditLogViewSet, basename="audit-log")
+router.register(r"coupons", CouponViewSet, basename="coupon")
 
 urlpatterns = [
     path("auth/login/", LoginView.as_view(), name="auth-login"),
@@ -97,11 +102,6 @@ urlpatterns = [
         ),
         name="product-brand-detail",
     ),
-    path(
-        "sales/coupons/",
-        CouponViewSet.as_view({"get": "list", "post": "create"}),
-        name="sales-coupon-list",
-    ),
     path("sales/hold/", SaleViewSet.as_view({"post": "hold"}), name="sales-hold"),
     path("sales/held/", SaleViewSet.as_view({"get": "held"}), name="sales-held"),
     path(
@@ -118,6 +118,16 @@ urlpatterns = [
         "inventory/transfer/",
         InventoryViewSet.as_view({"post": "transfer"}),
         name="inventory-transfer",
+    ),
+    path(
+        "inventory/transfer/complete/",
+        InventoryViewSet.as_view({"post": "complete_transfer"}),
+        name="inventory-transfer-complete",
+    ),
+    path(
+        "inventory/transfers/",
+        InventoryViewSet.as_view({"get": "transfers"}),
+        name="inventory-transfers",
     ),
     path(
         "inventory/movements/",
@@ -138,6 +148,9 @@ urlpatterns = [
     path("reports/expenses/", expenses_report),
     path("reports/due-payments/", due_payments_report),
     path("reports/day-closing/", day_closing_report),
+    path("reports/tax/", tax_report),
+    path("backup/export/", backup_export),
+    path("backup/history/", backup_history),
     path("dashboard/summary/", dashboard_summary),
     path("settings/business/", BusinessSettingsAPIView.as_view(), name="settings-business"),
     path("settings/shift/open/", shift_open),

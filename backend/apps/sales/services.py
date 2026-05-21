@@ -9,6 +9,8 @@ from apps.inventory.models import StockMovement
 from apps.ledger.models import LedgerEntry
 from apps.products.models import Product, ProductVariant
 
+from apps.settings_app.models import BusinessSettings
+
 from .models import Sale
 
 
@@ -88,6 +90,68 @@ def apply_completed_sale(sale: Sale, user):
         created_by_id=user.id if user and getattr(user, "is_authenticated", False) else None,
         branch_id=sale.branch_id,
     )
+
+    _apply_loyalty_points(sale)
+
+
+def _apply_loyalty_points(sale: Sale) -> None:
+    if not sale.customer_id:
+        return
+    bs = BusinessSettings.objects.filter(branch_id=sale.branch_id).first()
+    if not bs or not bs.loyalty_points_per_amount or bs.loyalty_points_per_amount <= 0:
+        return
+    if sale.paid_amount <= 0:
+        return
+    points = int(sale.paid_amount // bs.loyalty_points_per_amount)
+    if points > 0:
+        Customer.objects.filter(pk=sale.customer_id).update(
+            reward_points=F("reward_points") + points
+        )
+
+
+@transaction.atomic
+def cancel_completed_sale(sale: Sale, user) -> None:
+    from rest_framework import serializers as drf_serializers
+
+    if sale.status != Sale.Status.COMPLETED:
+        raise drf_serializers.ValidationError({"status": "Only completed sales can be cancelled."})
+
+    if sale.inventory_applied:
+        for item in sale.items.select_related("product", "variant"):
+            qty = item.quantity
+            if item.variant_id:
+                ProductVariant.objects.filter(pk=item.variant_id).update(stock=F("stock") + qty)
+            else:
+                Product.objects.filter(pk=item.product_id).update(
+                    current_stock=F("current_stock") + qty
+                )
+            StockMovement.objects.create(
+                product_id=item.product_id,
+                variant_id=item.variant_id,
+                movement_type=StockMovement.MovementType.IN,
+                quantity=qty,
+                reason="sale_cancelled",
+                reference=sale.invoice_number,
+                branch_id=sale.branch_id,
+                created_by_id=user.id if user and getattr(user, "is_authenticated", False) else None,
+            )
+        sale.inventory_applied = False
+
+    if sale.customer_id and sale.due_amount:
+        Customer.objects.filter(pk=sale.customer_id).update(
+            current_balance=F("current_balance") - sale.due_amount
+        )
+
+    bs = BusinessSettings.objects.filter(branch_id=sale.branch_id).first()
+    if bs and bs.loyalty_points_per_amount and bs.loyalty_points_per_amount > 0 and sale.customer_id:
+        points = int(sale.paid_amount // bs.loyalty_points_per_amount)
+        if points > 0:
+            Customer.objects.filter(pk=sale.customer_id).update(
+                reward_points=F("reward_points") - points
+            )
+
+    sale.status = Sale.Status.CANCELLED
+    sale.save(update_fields=["status", "inventory_applied"])
 
 
 @transaction.atomic

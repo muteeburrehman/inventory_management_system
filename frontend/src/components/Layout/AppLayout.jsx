@@ -92,8 +92,10 @@ function buildMenuModel() {
           key: "sell",
           icon: <RetweetOutlined />,
           label: "Sales",
-          matchPaths: ["/returns/sales"],
+          matchPaths: ["/sales", "/sales/coupons", "/returns/sales"],
           children: [
+            { key: "/sales", label: <Link to="/sales">Sales list</Link>, matchPaths: ["/sales"] },
+            { key: "/sales/coupons", label: <Link to="/sales/coupons">Coupons</Link>, matchPaths: ["/sales/coupons"] },
             { key: "/returns/sales", label: <Link to="/returns/sales">Sales returns</Link>, matchPaths: ["/returns/sales"] },
           ],
         },
@@ -151,10 +153,11 @@ function buildMenuModel() {
           key: "admin",
           icon: <SettingOutlined />,
           label: "Administration",
-          matchPaths: ["/users", "/settings"],
+          matchPaths: ["/users", "/settings", "/audit-logs"],
           children: [
             { key: "/users", label: <Link to="/users">Users</Link>, matchPaths: ["/users"] },
             { key: "/settings", label: <Link to="/settings">Settings</Link>, matchPaths: ["/settings"] },
+            { key: "/audit-logs", label: <Link to="/audit-logs">Audit logs</Link>, matchPaths: ["/audit-logs"] },
           ],
         },
         {

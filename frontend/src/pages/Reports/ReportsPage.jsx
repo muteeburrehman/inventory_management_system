@@ -55,6 +55,7 @@ import {
   profitReport,
   purchasesReport,
   salesReport,
+  taxReport,
 } from "../../api/reports.js";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
 import { formatCurrency } from "../../utils/currency.js";
@@ -130,6 +131,7 @@ function SalesTab({ range }) {
   const series = data?.series ?? [];
   const payments = data?.payments ?? [];
   const topProducts = data?.top_products ?? [];
+  const topCustomers = data?.top_customers ?? [];
   const hasSeries = series.some((s) => (s.count || 0) > 0 || (s.revenue || 0) > 0);
 
   return (
@@ -275,6 +277,30 @@ function SalesTab({ range }) {
           </Card>
         </Col>
       </Row>
+
+      {topCustomers.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24}>
+            <Card className="ims-card" bordered={false} title="Top customers" loading={isLoading}>
+              <Table
+                size="middle"
+                rowKey={(r) => r.id}
+                dataSource={topCustomers}
+                pagination={false}
+                columns={[
+                  { title: "Customer", dataIndex: "name" },
+                  { title: "Orders", dataIndex: "count", width: 90 },
+                  {
+                    title: "Revenue",
+                    dataIndex: "revenue",
+                    render: (v) => formatCurrency(v),
+                  },
+                ]}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
     </>
   );
 }
@@ -510,6 +536,45 @@ function InventoryTab() {
           </Card>
         </Col>
       </Row>
+
+      {(data?.dead_stock?.length > 0 || data?.slow_movers?.length > 0) && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          {data?.dead_stock?.length > 0 && (
+            <Col xs={24} lg={12}>
+              <Card className="ims-card" bordered={false} title="Dead stock (no sales 90d)" loading={isLoading}>
+                <Table
+                  size="small"
+                  rowKey="id"
+                  dataSource={data.dead_stock}
+                  pagination={false}
+                  columns={[
+                    { title: "Product", dataIndex: "name" },
+                    { title: "SKU", dataIndex: "sku" },
+                    { title: "Stock", dataIndex: "current_stock", width: 80 },
+                  ]}
+                />
+              </Card>
+            </Col>
+          )}
+          {data?.slow_movers?.length > 0 && (
+            <Col xs={24} lg={12}>
+              <Card className="ims-card" bordered={false} title="Slow movers" loading={isLoading}>
+                <Table
+                  size="small"
+                  rowKey="id"
+                  dataSource={data.slow_movers}
+                  pagination={false}
+                  columns={[
+                    { title: "Product", dataIndex: "name" },
+                    { title: "SKU", dataIndex: "sku" },
+                    { title: "Sold (90d)", dataIndex: "quantity_sold", width: 100 },
+                  ]}
+                />
+              </Card>
+            </Col>
+          )}
+        </Row>
+      )}
     </>
   );
 }
@@ -945,6 +1010,52 @@ function ToolBar({ onRefresh, loading, dateNote, hideDateNote }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/*                                  Tax tab                                   */
+/* -------------------------------------------------------------------------- */
+function TaxTab({ range }) {
+  const { data, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ["reports", "tax", dateRangeParams(range)],
+    queryFn: () => taxReport(dateRangeParams(range)),
+    keepPreviousData: true,
+  });
+
+  return (
+    <>
+      <ToolBar onRefresh={refetch} loading={isFetching} />
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={8}>
+          <StatCard
+            icon={<DollarOutlined />}
+            color="#14b8a6"
+            title="Sales tax collected"
+            value={formatCurrency(data?.sales_tax_collected ?? 0)}
+            loading={isLoading}
+          />
+        </Col>
+        <Col xs={24} sm={8}>
+          <StatCard
+            icon={<ShoppingOutlined />}
+            color="#6366f1"
+            title="Purchase tax paid"
+            value={formatCurrency(data?.purchase_tax_paid ?? 0)}
+            loading={isLoading}
+          />
+        </Col>
+        <Col xs={24} sm={8}>
+          <StatCard
+            icon={<LineChartOutlined />}
+            color="#f59e0b"
+            title="Net tax"
+            value={formatCurrency(data?.net_tax ?? 0)}
+            loading={isLoading}
+          />
+        </Col>
+      </Row>
+    </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*                                  Page                                      */
 /* -------------------------------------------------------------------------- */
 export function ReportsPage() {
@@ -960,6 +1071,7 @@ export function ReportsPage() {
       { key: "expenses", label: "Expenses", children: <ExpensesTab range={range} /> },
       { key: "due", label: "Due payments", children: <DuePaymentsTab /> },
       { key: "day", label: "Day closing", children: <DayClosingTab range={range} /> },
+      { key: "tax", label: "Tax", children: <TaxTab range={range} /> },
     ],
     [range],
   );

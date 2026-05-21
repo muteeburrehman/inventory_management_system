@@ -17,7 +17,14 @@ import {
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import { createPurchase, deletePurchase, getPurchase, listPurchases, updatePurchase } from "../../api/purchases.js";
+import {
+  createPurchase,
+  deletePurchase,
+  getPurchase,
+  listPurchases,
+  receivePurchase,
+  updatePurchase,
+} from "../../api/purchases.js";
 import { ConfirmDeleteButton } from "../../components/ConfirmDeleteButton.jsx";
 import { listProducts } from "../../api/products.js";
 import { listSuppliers } from "../../api/suppliers.js";
@@ -35,6 +42,7 @@ const PAYMENT = [
 
 const STATUS_OPTS = [
   { value: "pending", label: "Pending" },
+  { value: "partial", label: "Partially received" },
   { value: "received", label: "Received" },
   { value: "cancelled", label: "Cancelled" },
 ];
@@ -184,6 +192,15 @@ export function PurchasesPage() {
     onError: () => message.error("Delete failed."),
   });
 
+  const receiveMut = useMutation({
+    mutationFn: (id) => receivePurchase(id, {}),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["purchases"] });
+      message.success("Stock received.");
+    },
+    onError: (e) => message.error(e?.response?.data?.detail || "Receive failed."),
+  });
+
   const openNew = () => {
     setEditingId(null);
     form.resetFields();
@@ -260,15 +277,28 @@ export function PurchasesPage() {
     {
       title: "Actions",
       key: "a",
-      width: 120,
+      width: 200,
+      fixed: "right",
       render: (_, r) => (
-        <Space>
+        <Space size="small" wrap>
+          {r.status !== "received" && r.status !== "cancelled" && (
+            <Button
+              type="link"
+              size="small"
+              loading={receiveMut.isPending}
+              onClick={() => receiveMut.mutate(r.id)}
+            >
+              Receive
+            </Button>
+          )}
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
           <ConfirmDeleteButton
             title="Delete this order?"
             onConfirm={() => delMut.mutateAsync(r.id)}
             icon={<DeleteOutlined />}
-          />
+          >
+            {null}
+          </ConfirmDeleteButton>
         </Space>
       ),
     },
@@ -296,6 +326,7 @@ export function PurchasesPage() {
           loading={purQ.isLoading}
           columns={columns}
           dataSource={purchaseRows}
+          scroll={{ x: 720 }}
           pagination={antServerPagination({
             page: poPage,
             pageSize: poPageSize,

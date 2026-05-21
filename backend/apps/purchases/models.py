@@ -9,6 +9,7 @@ from apps.suppliers.models import Supplier
 class PurchaseOrder(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
+        PARTIAL = "partial", "Partially received"
         RECEIVED = "received", "Received"
         CANCELLED = "cancelled", "Cancelled"
         RETURNED = "returned", "Returned"
@@ -40,6 +41,7 @@ class PurchaseItem(models.Model):
     tax = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    received_quantity = models.PositiveIntegerField(default=0)
 
 
 class PurchaseReturn(models.Model):

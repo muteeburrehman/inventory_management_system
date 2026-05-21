@@ -28,7 +28,26 @@ export const useCartStore = create(
       removeItem: (key) => set((s) => ({ items: s.items.filter((i) => i.key !== key) })),
       setCustomer: (customerId) => set({ customerId }),
       setCoupon: (couponCode) => set({ couponCode }),
-      reset: () => set({ items: [], customerId: null, couponCode: null }),
+      couponDiscount: 0,
+      setCouponDiscount: (couponDiscount) => set({ couponDiscount }),
+      loadFromSale: (sale) =>
+        set({
+          customerId: sale.customer ?? null,
+          couponCode: null,
+          couponDiscount: 0,
+          items: (sale.items || []).map((line, i) => ({
+            key: `${line.product}-${line.variant ?? "x"}-${i}`,
+            productId: line.product,
+            variantId: line.variant,
+            name: line.product_name || `Product #${line.product}`,
+            sku: line.sku || "",
+            quantity: line.quantity,
+            unitPrice: Number(line.unit_price),
+            discount: Number(line.discount || 0),
+            tax: Number(line.tax || 0),
+          })),
+        }),
+      reset: () => set({ items: [], customerId: null, couponCode: null, couponDiscount: 0 }),
     }),
     { name: "ims-pos-cart" }
   )

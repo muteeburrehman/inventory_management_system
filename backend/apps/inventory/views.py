@@ -58,6 +58,58 @@ class InventoryViewSet(viewsets.ViewSet):
         )
         return Response({"id": st.id}, status=status.HTTP_201_CREATED)
 
+    @action(detail=False, methods=["post"], url_path="transfer/complete")
+    def complete_transfer(self, request):
+        from django.utils import timezone
+
+        transfer_id = request.data.get("id")
+        if not transfer_id:
+            return Response({"detail": "Transfer id required."}, status=status.HTTP_400_BAD_REQUEST)
+        st = StockTransfer.objects.filter(pk=transfer_id, status=StockTransfer.Status.PENDING).first()
+        if not st:
+            return Response({"detail": "Pending transfer not found."}, status=status.HTTP_404_NOT_FOUND)
+        qty = st.quantity
+        if st.product.current_stock < qty:
+            return Response({"detail": "Insufficient stock to transfer."}, status=status.HTTP_400_BAD_REQUEST)
+        Product.objects.filter(pk=st.product_id).update(current_stock=F("current_stock") - qty)
+        StockMovement.objects.create(
+            product_id=st.product_id,
+            movement_type=StockMovement.MovementType.TRANSFER,
+            quantity=-qty,
+            reason="transfer_out",
+            reference=f"TRF-{st.id}",
+            branch_id=st.from_branch_id,
+            created_by=request.user,
+        )
+        Product.objects.filter(pk=st.product_id).update(current_stock=F("current_stock") + qty)
+        StockMovement.objects.create(
+            product_id=st.product_id,
+            movement_type=StockMovement.MovementType.TRANSFER,
+            quantity=qty,
+            reason="transfer_in",
+            reference=f"TRF-{st.id}",
+            branch_id=st.to_branch_id,
+            created_by=request.user,
+        )
+        st.status = StockTransfer.Status.COMPLETED
+        st.transferred_at = timezone.now()
+        st.save(update_fields=["status", "transferred_at"])
+        return Response({"id": st.id, "status": st.status}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="transfers")
+    def transfers(self, request):
+        qs = StockTransfer.objects.select_related(
+            "from_branch", "to_branch", "product"
+        ).order_by("-id")
+        from .serializers import StockTransferSerializer
+
+        paginator = IMSPageNumberPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        ser = StockTransferSerializer(page if page is not None else qs, many=True)
+        if page is not None:
+            return paginator.get_paginated_response(ser.data)
+        return Response(ser.data)
+
     @action(detail=False, methods=["get"], url_path="movements")
     def movements(self, request):
         qs = StockMovement.objects.select_related(

@@ -58,6 +58,19 @@ class LoginView(TokenObtainPairView):
         try:
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
+            user = serializer.user
+            from .models import AuditLog
+
+            ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip() or request.META.get(
+                "REMOTE_ADDR"
+            )
+            AuditLog.objects.create(
+                user=user,
+                action="login",
+                module="auth",
+                description=f"User {user.username} logged in",
+                ip_address=ip or None,
+            )
             return success_response(serializer.validated_data, message="Login successful.")
         except (OperationalError, DatabaseError) as exc:
             logger.exception("Login database error")

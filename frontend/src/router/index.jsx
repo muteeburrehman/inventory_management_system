@@ -23,6 +23,9 @@ import { NotificationsPage } from "../pages/Notifications/NotificationsPage.jsx"
 import { PurchasesPage } from "../pages/Purchases/PurchasesPage.jsx";
 import { PurchaseReturnsPage } from "../pages/Returns/PurchaseReturnsPage.jsx";
 import { SalesReturnsPage } from "../pages/Returns/SalesReturnsPage.jsx";
+import { SalesPage } from "../pages/Sales/SalesPage.jsx";
+import { CouponsPage } from "../pages/Coupons/CouponsPage.jsx";
+import { AuditLogsPage } from "../pages/Audit/AuditLogsPage.jsx";
 import { ReportsPage } from "../pages/Reports/ReportsPage.jsx";
 import { SettingsPage } from "../pages/Settings/SettingsPage.jsx";
 import { UsersPage } from "../pages/Users/UsersPage.jsx";
@@ -63,12 +66,15 @@ export const router = createBrowserRouter([
       { path: "purchases", element: <PurchasesPage /> },
       { path: "inventory", element: <InventoryPage /> },
       { path: "barcodes", element: <BarcodesPage /> },
+      { path: "sales", element: <SalesPage /> },
+      { path: "sales/coupons", element: <CouponsPage /> },
       { path: "returns/sales", element: <SalesReturnsPage /> },
       { path: "returns/purchases", element: <PurchaseReturnsPage /> },
       { path: "ledger", element: <LedgerPage /> },
       { path: "expenses", element: <ExpensesPage /> },
       { path: "reports", element: <ReportsPage /> },
       { path: "users", element: <UsersPage /> },
+      { path: "audit-logs", element: <AuditLogsPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "notifications", element: <NotificationsPage /> },
     ],

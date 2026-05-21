@@ -26,8 +26,52 @@ class LedgerViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="profit-loss")
     def profit_loss(self, request):
-        return Response({"revenue": "0", "cogs": "0", "expenses": "0", "net": "0"})
+        sales = (
+            LedgerEntry.objects.filter(ledger_type=LedgerEntry.LedgerType.SALES).aggregate(
+                t=Sum("debit")
+            )["t"]
+            or 0
+        )
+        purchases = (
+            LedgerEntry.objects.filter(ledger_type=LedgerEntry.LedgerType.PURCHASE).aggregate(
+                t=Sum("debit")
+            )["t"]
+            or 0
+        )
+        expenses = (
+            LedgerEntry.objects.filter(ledger_type=LedgerEntry.LedgerType.EXPENSE).aggregate(
+                t=Sum("debit")
+            )["t"]
+            or 0
+        )
+        net = sales - purchases - expenses
+        return Response(
+            {
+                "revenue": str(sales),
+                "cogs": str(purchases),
+                "expenses": str(expenses),
+                "net": str(net),
+            }
+        )
 
     @action(detail=False, methods=["get"], url_path="cash-flow")
     def cash_flow(self, request):
-        return Response({"inflows": "0", "outflows": "0"})
+        inflows = (
+            LedgerEntry.objects.filter(
+                ledger_type__in=(
+                    LedgerEntry.LedgerType.SALES,
+                    LedgerEntry.LedgerType.CASH,
+                )
+            ).aggregate(t=Sum("credit"))["t"]
+            or 0
+        )
+        outflows = (
+            LedgerEntry.objects.filter(
+                ledger_type__in=(
+                    LedgerEntry.LedgerType.EXPENSE,
+                    LedgerEntry.LedgerType.PURCHASE,
+                )
+            ).aggregate(t=Sum("debit"))["t"]
+            or 0
+        )
+        return Response({"inflows": str(inflows), "outflows": str(outflows)})

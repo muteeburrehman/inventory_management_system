@@ -19,6 +19,12 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     envelope_message = "Notifications."
 
+    def list(self, request, *args, **kwargs):
+        from .services import ensure_due_payment_alerts
+
+        ensure_due_payment_alerts()
+        return super().list(request, *args, **kwargs)
+
     def get_queryset(self):
         qs = super().get_queryset()
         if self.request.user.is_authenticated:

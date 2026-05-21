@@ -197,6 +197,6 @@ class PurchaseWriteSerializer(serializers.ModelSerializer):
             for it in items:
                 PurchaseItem.objects.create(purchase=instance, **it)
         user = self.context["request"].user
-        if instance.status == PurchaseOrder.Status.RECEIVED and not instance.inventory_applied:
+        if instance.status == PurchaseOrder.Status.RECEIVED:
             apply_purchase_received(instance, user)
         return instance

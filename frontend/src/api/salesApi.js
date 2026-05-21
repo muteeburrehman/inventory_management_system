@@ -15,3 +15,13 @@ export async function submitSalesReturn(id, body) {
   const { data } = await api.post(`/sales/${id}/return/`, body);
   return unwrap(data);
 }
+
+export async function cancelSale(id) {
+  const { data } = await api.post(`/sales/${id}/cancel/`);
+  return unwrap(data);
+}
+
+export async function emailReceipt(id, email) {
+  const { data } = await api.post(`/sales/${id}/email-receipt/`, { email });
+  return unwrap(data);
+}

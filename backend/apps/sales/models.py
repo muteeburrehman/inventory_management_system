@@ -18,6 +18,9 @@ class Coupon(models.Model):
     expiry_date = models.DateField()
     is_active = models.BooleanField(default=True)
 
+    class Meta:
+        ordering = ["code"]
+
     def __str__(self):
         return self.code
 

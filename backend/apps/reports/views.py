@@ -188,6 +188,25 @@ def sales_report(request):
         for row in top
     ]
 
+    top_cust = (
+        qs.filter(customer_id__isnull=False)
+        .values("customer_id", "customer__name")
+        .annotate(
+            count=Count("id"),
+            revenue=Coalesce(Sum("total_amount"), ZERO, output_field=DecimalField()),
+        )
+        .order_by("-revenue")[:10]
+    )
+    top_customers = [
+        {
+            "id": row["customer_id"],
+            "name": row["customer__name"],
+            "count": _int(row["count"]),
+            "revenue": _money(row["revenue"]),
+        }
+        for row in top_cust
+    ]
+
     return Response(
         {
             "range": {"date_from": start.isoformat(), "date_to": end.isoformat()},
@@ -204,6 +223,7 @@ def sales_report(request):
             "series": series,
             "payments": payments,
             "top_products": top_products,
+            "top_customers": top_customers,
         }
     )
 
@@ -327,6 +347,45 @@ def inventory_report(request):
         for r in low_stock
     ]
 
+    from django.utils import timezone
+
+    stale_cutoff = timezone.localdate() - timedelta(days=90)
+    sold_ids = set(
+        SaleItem.objects.filter(sale__sale_date__date__gte=stale_cutoff)
+        .values_list("product_id", flat=True)
+        .distinct()
+    )
+    dead_qs = (
+        Product.objects.filter(current_stock__gt=0)
+        .exclude(pk__in=sold_ids)
+        .order_by("-current_stock")[:25]
+    )
+    dead_stock = [
+        {
+            "id": p.id,
+            "name": p.name,
+            "sku": p.sku,
+            "current_stock": p.current_stock,
+        }
+        for p in dead_qs
+    ]
+
+    slow_qs = (
+        SaleItem.objects.filter(sale__sale_date__date__gte=stale_cutoff)
+        .values("product_id", "product__name", "product__sku")
+        .annotate(qty=Coalesce(Sum("quantity"), 0, output_field=IntegerField()))
+        .order_by("qty")[:15]
+    )
+    slow_movers = [
+        {
+            "id": row["product_id"],
+            "name": row["product__name"],
+            "sku": row["product__sku"],
+            "quantity_sold": _int(row["qty"]),
+        }
+        for row in slow_qs
+    ]
+
     return Response(
         {
             "totals": {
@@ -341,6 +400,8 @@ def inventory_report(request):
                 "out_of_stock_count": _int(agg["out_of_stock_count"]),
             },
             "low_stock_items": low_stock_items,
+            "dead_stock": dead_stock,
+            "slow_movers": slow_movers,
         }
     )
 
@@ -599,5 +660,31 @@ def day_closing_report(request):
                 "net_cash": _money(net_cash),
             },
             "payments": payments,
+        }
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def tax_report(request):
+    start, end = _resolve_range(request)
+    sales_qs = Sale.objects.filter(
+        status=Sale.Status.COMPLETED,
+        sale_date__date__gte=start,
+        sale_date__date__lte=end,
+    )
+    purchase_qs = PurchaseOrder.objects.exclude(
+        status=PurchaseOrder.Status.CANCELLED
+    ).filter(purchase_date__gte=start, purchase_date__lte=end)
+
+    sales_tax = sales_qs.aggregate(t=Coalesce(Sum("tax"), ZERO, output_field=DecimalField()))["t"]
+    purchase_tax = purchase_qs.aggregate(t=Coalesce(Sum("tax"), ZERO, output_field=DecimalField()))["t"]
+
+    return Response(
+        {
+            "range": {"date_from": start.isoformat(), "date_to": end.isoformat()},
+            "sales_tax_collected": _money(sales_tax),
+            "purchase_tax_paid": _money(purchase_tax),
+            "net_tax": _money(Decimal(str(sales_tax)) - Decimal(str(purchase_tax))),
         }
     )

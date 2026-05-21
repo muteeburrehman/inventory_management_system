@@ -1,12 +1,15 @@
+from django.core.mail import send_mail
+from django.conf import settings
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from config.pagination import IMSPageNumberPagination
 
-from apps.accounts.permissions import CanRefund
+from apps.accounts.permissions import CanRefund, is_privileged_user
 
+from .coupons import resolve_coupon
 from .models import Coupon, Sale, SalesReturn, SalesReturnItem
 from .serializers import (
     CouponSerializer,
@@ -14,11 +17,10 @@ from .serializers import (
     SaleDetailSerializer,
     SaleListSerializer,
 )
-from .services import apply_sales_return
+from .services import apply_sales_return, cancel_completed_sale
 
 
 def _sale_for_detail(pk: int) -> Sale:
-    """Reload with relations so SaleDetailSerializer avoids N+1 on items → product."""
     return (
         Sale.objects.select_related("customer", "cashier", "branch", "coupon")
         .prefetch_related("items__product", "items__variant", "split_payments")
@@ -39,7 +41,7 @@ class SaleViewSet(mixins.CreateModelMixin, mixins.RetrieveModelMixin, mixins.Lis
     envelope_message = "Sales."
 
     def get_permissions(self):
-        if self.action == "submit_return":
+        if self.action in ("submit_return", "cancel"):
             return [IsAuthenticated(), CanRefund()]
         return [IsAuthenticated()]
 
@@ -80,6 +82,44 @@ class SaleViewSet(mixins.CreateModelMixin, mixins.RetrieveModelMixin, mixins.Lis
             return paginator.get_paginated_response(ser.data)
         return Response(ser.data)
 
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel(self, request, pk=None):
+        sale = self.get_object()
+        cancel_completed_sale(sale, request.user)
+        sale = _sale_for_detail(sale.pk)
+        return Response(SaleDetailSerializer(sale, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"], url_path="email-receipt")
+    def email_receipt(self, request, pk=None):
+        sale = self.get_object()
+        email = (request.data.get("email") or "").strip()
+        if not email and sale.customer_id:
+            email = (sale.customer.email or "").strip()
+        if not email:
+            return Response({"detail": "Email address required."}, status=status.HTTP_400_BAD_REQUEST)
+        subject = f"Receipt {sale.invoice_number}"
+        body = (
+            f"Thank you for your purchase.\n\n"
+            f"Invoice: {sale.invoice_number}\n"
+            f"Date: {sale.sale_date}\n"
+            f"Total: {sale.total_amount}\n"
+            f"Paid: {sale.paid_amount}\n"
+        )
+        try:
+            send_mail(
+                subject,
+                body,
+                settings.DEFAULT_FROM_EMAIL,
+                [email],
+                fail_silently=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return Response(
+                {"detail": f"Could not send email: {exc}"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"ok": True, "email": email})
+
     @action(detail=True, methods=["post"], url_path="return")
     def submit_return(self, request, pk=None):
         sale = self.get_object()
@@ -109,5 +149,34 @@ class CouponViewSet(viewsets.ModelViewSet):
     serializer_class = CouponSerializer
     permission_classes = [IsAuthenticated]
     search_fields = ("code",)
+    ordering_fields = ("code", "expiry_date", "id")
     envelope_message = "Coupons."
-    http_method_names = ["get", "post", "head", "options"]
+
+    def get_permissions(self):
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            return [IsAuthenticated(), _PrivilegedCouponPermission()]
+        return super().get_permissions()
+
+
+class _PrivilegedCouponPermission(BasePermission):
+    message = "Only owner or super admin can manage coupons."
+
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and is_privileged_user(request.user)
+
+    @action(detail=False, methods=["post"], url_path="validate")
+    def validate_coupon(self, request):
+        from decimal import Decimal
+
+        code = request.data.get("code", "")
+        subtotal = Decimal(str(request.data.get("subtotal", "0")))
+        coupon, discount = resolve_coupon(code, subtotal)
+        return Response(
+            {
+                "coupon_id": coupon.id,
+                "code": coupon.code,
+                "discount_type": coupon.discount_type,
+                "discount_value": str(coupon.discount_value),
+                "discount_amount": str(discount),
+            }
+        )

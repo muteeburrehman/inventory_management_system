@@ -82,6 +82,7 @@ class SaleDetailSerializer(serializers.ModelSerializer):
 class SaleCreateSerializer(serializers.ModelSerializer):
     items = SaleItemWriteSerializer(many=True)
     split_payments = SplitPaymentSerializer(many=True, required=False, default=list)
+    coupon_code = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Sale
@@ -98,12 +99,23 @@ class SaleCreateSerializer(serializers.ModelSerializer):
             "status",
             "branch",
             "coupon",
+            "coupon_code",
             "notes",
             "items",
             "split_payments",
         )
 
     def validate(self, attrs):
+        coupon_code = attrs.pop("coupon_code", None)
+        if coupon_code and not attrs.get("coupon"):
+            from .coupons import resolve_coupon
+
+            subtotal = attrs.get("subtotal", Decimal("0"))
+            coupon, discount_amt = resolve_coupon(coupon_code, subtotal)
+            attrs["coupon"] = coupon
+            attrs["discount"] = (attrs.get("discount") or Decimal("0")) + discount_amt
+            total = attrs.get("total_amount", Decimal("0"))
+            attrs["total_amount"] = max(total - discount_amt, Decimal("0"))
         items = attrs.get("items", [])
         if attrs.get("status") == Sale.Status.COMPLETED and items:
             validate_sale_stock(items)

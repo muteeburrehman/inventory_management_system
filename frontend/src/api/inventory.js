@@ -20,3 +20,13 @@ export async function listMovements(params = {}) {
   const { data } = await api.get("/inventory/movements/", { params });
   return normalizePaged(data);
 }
+
+export async function listTransfers(params = {}) {
+  const { data } = await api.get("/inventory/transfers/", { params });
+  return normalizePaged(data);
+}
+
+export async function completeTransfer(id) {
+  const { data } = await api.post("/inventory/transfer/complete/", { id });
+  return unwrap(data);
+}

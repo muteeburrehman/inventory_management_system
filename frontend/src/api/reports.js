@@ -35,3 +35,8 @@ export async function dayClosingReport(params = {}) {
   const { data } = await api.get("/reports/day-closing/", { params });
   return unwrap(data);
 }
+
+export async function taxReport(params = {}) {
+  const { data } = await api.get("/reports/tax/", { params });
+  return unwrap(data);
+}

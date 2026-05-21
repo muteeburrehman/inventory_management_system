@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { App, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Table, Tabs, Typography } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getStock, listMovements, postAdjustment, postTransfer } from "../../api/inventory.js";
+import {
+  completeTransfer,
+  getStock,
+  listMovements,
+  listTransfers,
+  postAdjustment,
+  postTransfer,
+} from "../../api/inventory.js";
 import { listProducts } from "../../api/products.js";
 import { listBranches } from "../../api/settings.js";
 import { PageShell } from "../../components/PageShell/PageShell.jsx";
@@ -20,6 +27,8 @@ export function InventoryPage() {
   const [stockPageSize, setStockPageSize] = useState(25);
   const [movPage, setMovPage] = useState(1);
   const [movPageSize, setMovPageSize] = useState(25);
+  const [xferListPage, setXferListPage] = useState(1);
+  const [xferListPageSize, setXferListPageSize] = useState(25);
 
   const stockQ = useQuery({
     queryKey: ["inventory-stock", stockPage, stockPageSize],
@@ -56,8 +65,24 @@ export function InventoryPage() {
       message.success("Transfer recorded (pending fulfilment).");
       setXferOpen(false);
       xferForm.resetFields();
+      qc.invalidateQueries({ queryKey: ["inventory-transfers"] });
     },
     onError: (e) => message.error(e?.response?.data?.message || "Transfer failed."),
+  });
+
+  const xferListQ = useQuery({
+    queryKey: ["inventory-transfers", xferListPage, xferListPageSize],
+    queryFn: () => listTransfers({ page: xferListPage, page_size: xferListPageSize }),
+  });
+
+  const completeMut = useMutation({
+    mutationFn: completeTransfer,
+    onSuccess: () => {
+      message.success("Transfer completed.");
+      qc.invalidateQueries({ queryKey: ["inventory-transfers"] });
+      qc.invalidateQueries({ queryKey: ["inventory-stock"] });
+    },
+    onError: (e) => message.error(e?.response?.data?.detail || "Complete failed."),
   });
 
   const stockCols = [
@@ -127,6 +152,47 @@ export function InventoryPage() {
               onChange: (p, ps) => {
                 setStockPage(p);
                 setStockPageSize(ps);
+              },
+            })}
+          />
+        </Card>
+      ),
+    },
+    {
+      key: "t",
+      label: "Transfers",
+      children: (
+        <Card bordered={false} className="ims-card">
+          <Table
+            rowKey="id"
+            size="small"
+            loading={xferListQ.isLoading}
+            dataSource={xferListQ.data?.results ?? []}
+            columns={[
+              { title: "ID", dataIndex: "id", width: 60 },
+              { title: "From", dataIndex: "from_branch_name" },
+              { title: "To", dataIndex: "to_branch_name" },
+              { title: "Product", dataIndex: "product_name", ellipsis: true },
+              { title: "Qty", dataIndex: "quantity", width: 70 },
+              { title: "Status", dataIndex: "status", width: 100 },
+              {
+                title: "",
+                key: "c",
+                render: (_, r) =>
+                  r.status === "pending" ? (
+                    <Button type="link" size="small" onClick={() => completeMut.mutate(r.id)}>
+                      Complete
+                    </Button>
+                  ) : null,
+              },
+            ]}
+            pagination={antServerPagination({
+              page: xferListPage,
+              pageSize: xferListPageSize,
+              total: xferListQ.data?.count ?? 0,
+              onChange: (p, ps) => {
+                setXferListPage(p);
+                setXferListPageSize(ps);
               },
             })}
           />

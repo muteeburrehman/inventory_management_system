@@ -29,3 +29,8 @@ export async function purchaseReturn(id, body) {
   const { data } = await api.post(`/purchases/${id}/return/`, body);
   return unwrap(data);
 }
+
+export async function receivePurchase(id, body = {}) {
+  const { data } = await api.post(`/purchases/${id}/receive/`, body);
+  return unwrap(data);
+}

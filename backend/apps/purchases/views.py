@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from apps.products.models import Product
 
 from .models import PurchaseOrder, PurchaseReturn, PurchaseReturnItem
+from .services import apply_purchase_received as receive_stock
 from .serializers import (
     PurchaseDetailSerializer,
     PurchaseListSerializer,
@@ -34,6 +35,14 @@ class PurchaseViewSet(viewsets.ModelViewSet):
             return PurchaseDetailSerializer
         return PurchaseListSerializer
 
+    def create(self, request, *args, **kwargs):
+        write = PurchaseWriteSerializer(data=request.data, context={"request": request})
+        write.is_valid(raise_exception=True)
+        self.perform_create(write)
+        po = self.get_queryset().get(pk=write.instance.pk)
+        read = PurchaseDetailSerializer(po, context={"request": request})
+        return Response(read.data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=["post"], url_path="return")
     def purchase_return(self, request, pk=None):
         po = self.get_object()
@@ -58,3 +67,13 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         po.status = PurchaseOrder.Status.RETURNED
         po.save(update_fields=["status"])
         return Response({"return_id": pr.id}, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="receive")
+    def receive(self, request, pk=None):
+        po = self.get_object()
+        if po.status == PurchaseOrder.Status.CANCELLED:
+            return Response({"detail": "Cancelled purchase cannot be received."}, status=400)
+        lines = request.data.get("items")
+        receive_stock(po, request.user, lines=lines)
+        po = self.get_queryset().get(pk=po.pk)
+        return Response(PurchaseDetailSerializer(po, context={"request": request}).data)

@@ -15,3 +15,8 @@ export async function holdSale(payload) {
   const { data } = await api.post("/sales/hold/", payload);
   return unwrap(data);
 }
+
+export async function validateCoupon(code, subtotal) {
+  const { data } = await api.post("/coupons/validate/", { code, subtotal });
+  return unwrap(data);
+}

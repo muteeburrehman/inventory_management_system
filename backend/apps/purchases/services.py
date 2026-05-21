@@ -8,16 +8,39 @@ from apps.ledger.models import LedgerEntry
 from apps.products.models import Product, ProductVariant
 from apps.suppliers.models import Supplier
 
-from .models import PurchaseOrder
+from .models import PurchaseOrder, PurchaseItem
 
 
 @transaction.atomic
-def apply_purchase_received(po: PurchaseOrder, user):
-    """Increase stock and supplier ledger when purchase is marked received."""
-    if po.inventory_applied or po.status != PurchaseOrder.Status.RECEIVED:
+def apply_purchase_received(po: PurchaseOrder, user, lines: list[dict] | None = None):
+    """
+    Increase stock for purchase lines. If ``lines`` is provided, each entry is
+    ``{product, quantity}`` for partial receive; otherwise receive all remaining qty.
+    """
+    if po.status == PurchaseOrder.Status.CANCELLED:
         return
-    for item in po.items.select_related("product", "variant"):
-        qty = item.quantity
+
+    items = list(po.items.select_related("product", "variant"))
+    receive_map = {}
+    if lines:
+        for row in lines:
+            receive_map[int(row["product"])] = int(row.get("quantity", 0))
+
+    any_received = False
+    for item in items:
+        if lines:
+            qty = receive_map.get(item.product_id, 0)
+            if qty <= 0:
+                continue
+            remaining = item.quantity - item.received_quantity
+            qty = min(qty, remaining)
+        else:
+            qty = item.quantity - item.received_quantity
+
+        if qty <= 0:
+            continue
+
+        any_received = True
         if item.variant_id:
             ProductVariant.objects.filter(pk=item.variant_id).update(stock=F("stock") + qty)
         else:
@@ -32,13 +55,32 @@ def apply_purchase_received(po: PurchaseOrder, user):
             branch_id=po.branch_id,
             created_by_id=user.id if user and getattr(user, "is_authenticated", False) else None,
         )
-    po.inventory_applied = True
-    po.save(update_fields=["inventory_applied"])
+        PurchaseItem.objects.filter(pk=item.pk).update(
+            received_quantity=F("received_quantity") + qty
+        )
 
+    if not any_received:
+        return
+
+    po.refresh_from_db()
+    items = list(po.items.all())
+    fully_received = all(i.received_quantity >= i.quantity for i in items)
+    if fully_received:
+        po.status = PurchaseOrder.Status.RECEIVED
+    else:
+        po.status = PurchaseOrder.Status.PARTIAL
+
+    if not po.inventory_applied and fully_received:
+        _create_supplier_ledger(po, user)
+        po.inventory_applied = True
+
+    po.save(update_fields=["status", "inventory_applied"])
+
+
+def _create_supplier_ledger(po: PurchaseOrder, user) -> None:
     Supplier.objects.filter(pk=po.supplier_id).update(
         current_balance=F("current_balance") + po.due_amount
     )
-
     last = (
         LedgerEntry.objects.filter(ledger_type=LedgerEntry.LedgerType.PURCHASE, reference_id=po.id)
         .order_by("-id")
